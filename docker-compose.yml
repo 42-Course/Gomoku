@@ -1,0 +1,51 @@
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      - GOMOKU_DEBUG=true
+      - GOMOKU_REDIS_URL=redis://redis:6379/0
+      - GOMOKU_ENGINE_BIN=/usr/local/bin/engine
+    depends_on:
+      - redis
+    volumes:
+      - ./backend:/app
+      - engine-bin:/usr/local/bin
+
+  celery-worker:
+    build: ./backend
+    command: celery -A celery_app worker --loglevel=info
+    environment:
+      - GOMOKU_REDIS_URL=redis://redis:6379/0
+      - GOMOKU_ENGINE_BIN=/usr/local/bin/engine
+    depends_on:
+      - redis
+    volumes:
+      - ./backend:/app
+      - engine-bin:/usr/local/bin
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  flower:
+    image: mher/flower:2.0
+    command: celery --broker=redis://redis:6379/0 flower --port=5555
+    ports:
+      - "5555:5555"
+    environment:
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
+    depends_on:
+      - redis
+      - celery-worker
+
+  engine-builder:
+    build: ./engine
+    volumes:
+      - engine-bin:/out
+
+volumes:
+  engine-bin:
