@@ -5,6 +5,7 @@
 # Virtual environment
 venv/
 .env/
+*/.env
 
 # Python cache
 __pycache__/
@@ -23,7 +24,7 @@ __pycache__/
 # =========================
 
 # Build artifacts
-target/
+*/target/
 
 # Cargo lock (optional rule)
 # Keep for binaries, ignore for libraries
