@@ -2,16 +2,11 @@ import subprocess
 import json
 
 def compute_ai_move(state:dict):
-    # result = subprocess.run(
-    #     ["./gomoku_ai"],
-    #     input=json.dumps(state),
-    #     text=True,
-    #     capture_output=True
-    # )
+    """
+    Calls the Rust engine to compute the next move.
 
-    # if result.returncode != 0:
-    #     raise Exception("Rust engine failed")
-
-    # return json.loads(result.stdout)
-
-    return "Hello World"
+    TODO:
+    - Implement subprocess call to Rust binary
+    - Define JSON contract
+    """
+    raise NotImplementedError("Rust bridge not implemented yet")
