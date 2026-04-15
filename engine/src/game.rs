@@ -69,20 +69,41 @@ impl Game {
         }
 
         self.board[y][x] = self.current_player.to_u8();
+        
+        // apply captures
+        let captured = self.apply_captures(x, y);
+
+        // update capture count
+        let captured_paris = captured.len() / 2;
+        match self.current_player {
+            Player::Black => self.captures.0 += captured_paris as u8,
+            Player::White => self.captures.1 += captured_paris as u8,
+        }
+
         self.history.push(Move {
             x,
             y,
             player: self.current_player,
-            captured: Vec::new(),
+            captured,
         });
 
-        if self.check_win(x, y) {
-            // mark game as finished
-            self.status = GameStatus::Win(self.current_player)
-        } else if self.is_board_full() {
-            self.status = GameStatus::Draw;
-        } else {
-            self.current_player = self.current_player.opponent();
+        match self.current_player {
+            Player::Black if self.captures.0 >= 5 => {
+                self.status = GameStatus::Win(Player::Black);
+            }
+            Player::White if self.captures.1 >= 5 => {
+                self.status = GameStatus::Win(Player::White);
+            }
+            _ => {
+                if self.check_win(x, y) {
+                    // mark game as finished
+                    self.status = GameStatus::Win(self.current_player)
+                } else if self.is_board_full() {
+                    self.status = GameStatus::Draw;
+                } else {
+                    self.current_player = self.current_player.opponent();
+                }
+            }
         }
 
         Ok(())
@@ -147,6 +168,62 @@ impl Game {
         }
         false
 
+    }
+
+    fn apply_captures(&mut self, x: usize, y: usize) -> Vec<(usize, usize)> {
+        let mut captured = Vec::new();
+        let player = self.current_player.to_u8();
+        let opponent = self.current_player.opponent().to_u8();
+
+        let directions = [(1, 0), (0, 1), (1, 1), (1, -1)];
+
+        for (dx, dy) in directions {
+            for &(sx, sy) in &[(dx, dy), (-dx, -dy)] {
+                let x1 = x as isize + sx;
+                let y1 = y as isize + sy;
+
+                let x2 = x as isize + 2 * sx;
+                let y2 = y as isize + 2 * sy;
+
+                let x3 = x as isize + 3 * sx;
+                let y3 = y as isize + 3 * sy;
+
+                if x3 < 0 || y3 < 0 || x3 >= 19 || y3 >= 19 {
+                    continue;
+                }
+
+                println!("Put: ({}, {})", x, y);
+
+                println!(
+                    "Checking: ({}, {}) ({}, {}) ({}, {})",
+                    x1, y1, x2, y2, x3, y3
+                );
+
+                println!(
+                    "Values: {} {} {}",
+                    self.board[y1 as usize][x1 as usize],
+                    self.board[y2 as usize][x2 as usize],
+                    self.board[y3 as usize][x3 as usize]
+                );  
+
+                let (x1, y1) = (x1 as usize, y1 as usize);
+                let (x2, y2) = (x2 as usize, y2 as usize);
+                let (x3, y3) = (x3 as usize, y3 as usize);
+
+                if self.board[y1][x1] == opponent
+                    && self.board[y2][x2] == opponent
+                    && self.board[y3][x3] == player
+                {
+                    //capture
+                    self.board[y1][x1] = 0;
+                    self.board[y2][x2] = 0;
+
+                    captured.push((x1, y1));
+                    captured.push((x2, y2));
+                }
+            }
+        }
+        captured
     }
 
     pub fn is_board_full(&self) -> bool {
