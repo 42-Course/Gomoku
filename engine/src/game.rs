@@ -22,10 +22,18 @@ impl Player {
     }
 }
 
+#[derive(Copy, Clone)]
+pub struct Move {
+    pub x: usize,
+    pub y: usize,
+    pub player: Player,
+}
+
 pub struct Game {
     pub board: Board,
     pub current_player: Player,
     pub status: GameStatus,
+    pub history: Vec<Move>,
 }
 
 pub enum GameStatus {
@@ -40,6 +48,7 @@ impl Game {
             board: [[0; 19]; 19],
             current_player: Player::Black,
             status: GameStatus::Ongoing,
+            history: Vec::new(),
         }
     }
 
@@ -57,6 +66,11 @@ impl Game {
         }
 
         self.board[y][x] = self.current_player.to_u8();
+        self.history.push(Move {
+            x,
+            y,
+            player: self.current_player,
+        });
 
         if self.check_win(x, y) {
             // mark game as finished
