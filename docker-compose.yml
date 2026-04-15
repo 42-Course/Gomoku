@@ -1,6 +1,7 @@
 services:
   backend:
     build: ./backend
+    working_dir: /app
     ports:
       - "8000:8000"
     environment:
@@ -15,7 +16,8 @@ services:
 
   celery-worker:
     build: ./backend
-    command: celery -A celery_app worker --loglevel=info
+    working_dir: /app
+    command: celery -A celery_app.celery worker --loglevel=info
     environment:
       - GOMOKU_REDIS_URL=redis://redis:6379/0
       - GOMOKU_ENGINE_BIN=/usr/local/bin/engine
@@ -28,7 +30,7 @@ services:
   redis:
     image: redis:7-alpine
     ports:
-      - "6379:6379"
+      - "6380:6379"
 
   flower:
     image: mher/flower:2.0

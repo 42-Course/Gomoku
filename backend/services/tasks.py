@@ -1,10 +1,8 @@
 import random
 import time
+from celery_app import celery
 
-from celery_app import celery_app
-
-
-@celery_app.task(name="compute_ai_move")
+@celery.task(name="compute_ai_move")
 def compute_ai_move_task(state: dict) -> dict:
     """
     Calls the Rust engine to compute the next move.
