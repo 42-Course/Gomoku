@@ -192,20 +192,6 @@ impl Game {
                     continue;
                 }
 
-                println!("Put: ({}, {})", x, y);
-
-                println!(
-                    "Checking: ({}, {}) ({}, {}) ({}, {})",
-                    x1, y1, x2, y2, x3, y3
-                );
-
-                println!(
-                    "Values: {} {} {}",
-                    self.board[y1 as usize][x1 as usize],
-                    self.board[y2 as usize][x2 as usize],
-                    self.board[y3 as usize][x3 as usize]
-                );  
-
                 let (x1, y1) = (x1 as usize, y1 as usize);
                 let (x2, y2) = (x2 as usize, y2 as usize);
                 let (x3, y3) = (x3 as usize, y3 as usize);
@@ -236,4 +222,67 @@ impl Game {
         }
         true
     }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+}
+
+#[test]
+fn test_horizontal_win() {
+    let mut game = Game::new();
+
+    game.play_move(0, 0).unwrap();
+    game.play_move(0, 1).unwrap();
+    game.play_move(1, 0).unwrap();
+    game.play_move(1, 1).unwrap();
+    game.play_move(2, 0).unwrap();
+    game.play_move(2, 1).unwrap();
+    game.play_move(3, 0).unwrap();
+    game.play_move(3, 1).unwrap();
+    game.play_move(4, 0).unwrap();
+
+    match game.status {
+        GameStatus::Win(Player::Black) => {}
+        _ => panic!("Expected Black to win"),
+    }
+}
+
+#[test]
+fn test_capture_simple() {
+    let mut game = Game::new();
+
+    game.play_move(0, 0).unwrap(); // X
+    game.play_move(1, 0).unwrap(); // O
+    game.play_move(4, 0).unwrap(); // X
+    game.play_move(2, 0).unwrap(); // O
+
+    game.play_move(3, 0).unwrap(); // X → capture
+
+    assert_eq!(game.board[0][1], 0);
+    assert_eq!(game.board[0][2], 0);
+}
+
+#[test]
+fn test_double_capture() {
+    let mut game = Game::new();
+
+    // setup: X O O X O O X
+    game.play_move(0, 0).unwrap(); // X
+    game.play_move(1, 0).unwrap(); // O
+    game.play_move(0, 1).unwrap(); // X
+    game.play_move(2, 0).unwrap(); // O
+
+    game.play_move(0, 4).unwrap(); // X
+    game.play_move(4, 0).unwrap(); // O
+    game.play_move(6, 0).unwrap(); // X
+    game.play_move(5, 0).unwrap(); // O
+
+    game.play_move(3, 0).unwrap(); // X → should capture both pairs
+
+    assert_eq!(game.board[0][1], 0);
+    assert_eq!(game.board[0][2], 0);
+    assert_eq!(game.board[0][4], 0);
+    assert_eq!(game.board[0][5], 0);
 }
