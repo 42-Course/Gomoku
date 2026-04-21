@@ -1,3 +1,17 @@
+#[allow(dead_code)]
+pub const DEBUG_PRINT: bool = true;
+
+#[macro_export]
+macro_rules! play {
+    ($game:expr, $x:expr, $y:expr) => {{
+        let result = $game.play_move($x, $y);
+        if $crate::game::DEBUG_PRINT {
+            $game.print_board_with(true, true);
+        }
+        result
+    }};
+}
+
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Player {
     Black,
@@ -6,7 +20,6 @@ pub enum Player {
 
 pub type Cell = Option<Player>;
 pub type Board = [[Cell; 19]; 19];
-
 
 #[derive(Copy, Clone, Debug)]
 pub enum Direction {
@@ -54,6 +67,16 @@ pub struct Move {
     pub captured: Vec<(usize, usize)> // coordinates of stones captured
 }
 
+impl std::fmt::Display for Move {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        // Write strictly the first element into the supplied output
+        // stream: `f`. Returns `fmt::Result` which indicates whether the
+        // operation succeeded or failed. Note that `write!` uses syntax which
+        // is very similar to `println!`.
+        write!(f, "[{}, {}]", self.x, self.y)
+    }
+}
+
 pub struct Game {
     pub board: Board,
     pub status: GameStatus,
@@ -61,6 +84,7 @@ pub struct Game {
     pub captures: (u8, u8), // (black, white)
 }
 
+#[allow(dead_code)]
 pub enum GameStatus {
     Ongoing,
     Win(Player),
@@ -110,6 +134,11 @@ impl Game {
         let player = self.current_player();
         self.board[y][x] = Some(player);
 
+        if self.count_free_threes(x, y) >= 2 {
+            self.board[y][x] = None;
+            return Err("Double three is forbidden".to_string());
+        }
+
         // apply captures
         let captured = self.apply_captures(x, y);
 
@@ -148,7 +177,7 @@ impl Game {
 
     pub fn print_board_with(&self, show_coords: bool, print_turn: bool) {
         if print_turn {
-            println!("\n-------\nTurn {:2}", self.history.len());
+            println!("\n-------\nTurn {:2} | Move {}", self.history.len(), self.history.last().unwrap());
         }
 
         let height = self.board.len();
@@ -279,6 +308,83 @@ impl Game {
         captured
     }
 
+        fn count_free_threes(&self, x: usize, y: usize) -> u32 {
+        let mut count = 0;
+
+        for (dx, dy) in Direction::all_directions() {
+            if self.is_free_three(x, y, dx, dy) {
+                count += 1;
+            }
+        }
+
+        count
+    }
+
+    fn is_free_three(&self, x: usize, y: usize, dx: isize, dy: isize) -> bool {
+        let player = self.board[y][x].unwrap();
+
+        // let mut line = Vec::new();
+        let mut line: Vec<Cell> = Vec::new(); // Cell = Option<Player>
+
+        for i in -4..=4 {
+            let cx = x as isize + i * dx;
+            let cy = y as isize + i * dy;
+
+            if cx < 0 || cy < 0 || cx >= 19 || cy >= 19 {
+                continue;
+                // line.push(None); //push three for outside board
+            } else {
+                line.push(self.board[cy as usize][cx as usize]);
+            }
+        }
+
+        if line.len() < 6 { return false; }
+        for i in 0..=line.len() - 6 {
+            if line[i].is_some() { continue; }
+
+            // scan for pattern: . X X X . .
+            if line[i + 1] == Some(player)
+                && line[i + 2] == Some(player)
+                && line[i + 3] == Some(player)
+                && line[i + 4].is_none()
+                && line[i + 5].is_none()
+            {
+                return true;
+            }
+
+            // scan for pattern: . . X X X .
+            if line[i + 1].is_none()
+                && line[i + 2] == Some(player)
+                && line[i + 3] == Some(player)
+                && line[i + 4] == Some(player)
+                && line[i + 5].is_none()
+            {
+                return true;
+            }
+
+            // scan for pattern: . X X . X .
+            if line[i + 1] == Some(player)
+                && line[i + 2] == Some(player)
+                && line[i + 3].is_none()
+                && line[i + 4] == Some(player)
+                && line[i + 5].is_none()
+            {
+                return true;
+            }
+
+            // scan for pattern: . X . X X .
+            if line[i + 1] == Some(player)
+                && line[i + 2].is_none()
+                && line[i + 3] == Some(player)
+                && line[i + 4] == Some(player)
+                && line[i + 5].is_none()
+            {
+                return true;
+            }
+        }
+        false
+    }
+
     pub fn is_board_full(&self) -> bool {
         self.board.iter().all(|row| row.iter().all(|c| c.is_some()))
     }
@@ -294,15 +400,15 @@ mod tests {
 fn test_horizontal_win() {
     let mut game = Game::new();
 
-    game.play_move(0, 0).unwrap(); game.print_board_with(true, true);
-    game.play_move(0, 1).unwrap(); game.print_board_with(true, true);
-    game.play_move(1, 0).unwrap(); game.print_board_with(true, true);
-    game.play_move(1, 1).unwrap(); game.print_board_with(true, true);
-    game.play_move(2, 0).unwrap(); game.print_board_with(true, true);
-    game.play_move(2, 1).unwrap(); game.print_board_with(true, true);
-    game.play_move(3, 0).unwrap(); game.print_board_with(true, true);
-    game.play_move(3, 1).unwrap(); game.print_board_with(true, true);
-    game.play_move(4, 0).unwrap(); game.print_board_with(true, true);
+    play!(game, 0, 0).unwrap();
+    play!(game, 0, 1).unwrap();
+    play!(game, 1, 0).unwrap();
+    play!(game, 1, 1).unwrap();
+    play!(game, 2, 0).unwrap();
+    play!(game, 2, 1).unwrap();
+    play!(game, 3, 0).unwrap();
+    play!(game, 3, 1).unwrap();
+    play!(game, 4, 0).unwrap();
 
     match game.status {
         GameStatus::Win(Player::Black) => {}
@@ -314,12 +420,12 @@ fn test_horizontal_win() {
 fn test_capture_simple() {
     let mut game = Game::new();
 
-    game.play_move(0, 0).unwrap(); game.print_board_with(true, true); // X
-    game.play_move(1, 0).unwrap(); game.print_board_with(true, true); // O
-    game.play_move(4, 0).unwrap(); game.print_board_with(true, true); // X
-    game.play_move(2, 0).unwrap(); game.print_board_with(true, true); // O
+    play!(game, 0, 0).unwrap(); // X
+    play!(game, 1, 0).unwrap(); // O
+    play!(game, 4, 0).unwrap(); // X
+    play!(game, 2, 0).unwrap(); // O
 
-    game.play_move(3, 0).unwrap(); game.print_board_with(true, true); // X → capture
+    play!(game, 3, 0).unwrap(); // X → capture
 
     assert_eq!(game.board[0][1], None);
     assert_eq!(game.board[0][2], None);
@@ -330,20 +436,79 @@ fn test_double_capture() {
     let mut game = Game::new();
 
     // setup: X O O X O O X
-    game.play_move(0, 0).unwrap(); game.print_board_with(true, true); // X
-    game.play_move(1, 0).unwrap(); game.print_board_with(true, true); // O
-    game.play_move(0, 1).unwrap(); game.print_board_with(true, true); // X
-    game.play_move(2, 0).unwrap(); game.print_board_with(true, true); // O
+    play!(game, 0, 0).unwrap(); // X
+    play!(game, 1, 0).unwrap(); // O
+    play!(game, 0, 1).unwrap(); // X
+    play!(game, 2, 0).unwrap(); // O
 
-    game.play_move(0, 4).unwrap(); game.print_board_with(true, true); // X
-    game.play_move(4, 0).unwrap(); game.print_board_with(true, true); // O
-    game.play_move(6, 0).unwrap(); game.print_board_with(true, true); // X
-    game.play_move(5, 0).unwrap(); game.print_board_with(true, true); // O
+    play!(game, 0, 4).unwrap(); // X
+    play!(game, 4, 0).unwrap(); // O
+    play!(game, 6, 0).unwrap(); // X
+    play!(game, 5, 0).unwrap(); // O
 
-    game.play_move(3, 0).unwrap(); game.print_board_with(true, true); // X → should capture both pairs
+    play!(game, 3, 0).unwrap(); // X → should capture both pairs
 
     assert_eq!(game.board[0][1], None);
     assert_eq!(game.board[0][2], None);
     assert_eq!(game.board[0][4], None);
     assert_eq!(game.board[0][5], None);
+}
+
+#[test]
+fn test_double_three_forbidden() {
+    let mut game = Game::new();
+
+    // Setup shape:
+    //    0 1 2 3 4 5 6 7
+    //   0. . . . . . . .
+    //   1. X . . . . . .
+    //   2. . X . . . . .
+    //   3. . . . . . . .
+    //   4. . . . . X X .
+    //   5. . . . . . . .
+    //
+    // Playing center creates two open-threes
+
+    play!(game, 1, 1).unwrap(); // X
+    play!(game, 10, 18).unwrap(); // O
+    play!(game, 2, 2).unwrap(); // X
+    play!(game, 12, 15).unwrap(); // O
+    play!(game, 5, 4).unwrap(); // X
+    play!(game, 0, 2).unwrap(); // O
+    play!(game, 6, 4).unwrap(); // X
+    play!(game, 0, 3).unwrap(); // O
+
+    // This should be forbidden (double three)
+    let result = play!(game, 4, 4);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_not_double_three_border() {
+    let mut game = Game::new();
+
+    // Setup shape:
+    //    0 1 2 3 4 5 6 7
+    //   0. . X . . . . .
+    //   1. . X . . . . .
+    //   2. . . X X . . .
+    //   3. . . . . . . .
+    //   4. . . . . . . .
+    //   5. . . . . . . .
+    //
+    // Playing center creates two open-threes
+
+    play!(game, 2, 0).unwrap(); // X
+    play!(game, 10, 18).unwrap(); // O
+    play!(game, 2, 1).unwrap(); // X
+    play!(game, 12, 15).unwrap(); // O
+    play!(game, 3, 2).unwrap(); // X
+    play!(game, 0, 5).unwrap(); // O
+    play!(game, 4, 2).unwrap(); // X
+    play!(game, 0, 3).unwrap(); // O
+
+    let result = play!(game, 2, 2);
+
+    assert!(result.is_ok());
 }
