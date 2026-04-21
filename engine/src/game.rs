@@ -1,16 +1,75 @@
 pub type Board = [[u8; 19]; 19];
 
-pub struct Game {
-    pub board: Board,
-    pub current_player: u8,
+#[derive(Copy, Clone, PartialEq, Debug)]
+pub enum Player {
+    Black,
+    White,
 }
 
+impl Player {
+    #[allow(dead_code)]
+    pub fn opponent(self) -> Player {
+        match self {
+            Player::Black => Player::White,
+            Player::White => Player::Black,
+        }
+    }
+
+    pub fn to_u8(self) -> u8 {
+        match self {
+            Player::Black => 1,
+            Player::White => 2,
+        }
+    }
+}
+
+#[allow(dead_code)]
+#[derive(Clone)]
+pub struct Move {
+    pub x: usize,
+    pub y: usize,
+    pub captured: Vec<(usize, usize)> // coordinates of stones captured
+}
+
+#[allow(dead_code)]
+pub struct Game {
+    pub board: Board,
+    pub status: GameStatus,
+    pub history: Vec<Move>,
+    pub captures: (u8, u8), // (black, white)
+}
+
+pub enum GameStatus {
+    Ongoing,
+    Win(Player),
+    Draw,
+}
+
+#[allow(dead_code)]
 impl Game {
     pub fn new() -> Self {
         Self {
             board: [[0; 19]; 19],
-            current_player: 1,
+            status: GameStatus::Ongoing,
+            history: Vec::new(), // The index of the history represents the move number, starting from 0 (player)
+            captures: (0, 0),
         }
+    }
+
+    pub fn player_at(&self, move_index: usize) -> Player {
+        if move_index.is_multiple_of(2) {
+            Player::Black
+        } else {
+            Player::White
+        }
+    }
+
+    pub fn current_player(&self) -> Player {
+        self.player_at(self.history.len())
+    }
+
+    pub fn get_player_at(&self, index: usize) -> Player {
+        self.player_at(index)
     }
 
     pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), String> {
@@ -22,9 +81,23 @@ impl Game {
             return Err("Cell already occupied".to_string());
         }
 
-        self.board[y][x] = self.current_player;
+        if !matches!(self.status, GameStatus::Ongoing) {
+            return Err("Game already finished".to_string());
+        }
 
-        self.current_player = if self.current_player == 1 { 2 } else { 1 };
+        self.board[y][x] = self.current_player().to_u8();
+        self.history.push(Move {
+            x,
+            y,
+            captured: Vec::new(),
+        });
+
+        if self.check_win(x, y) {
+            // mark game as finished
+            self.status = GameStatus::Win(self.current_player())
+        } else if self.is_board_full() {
+            self.status = GameStatus::Draw;
+        }
 
         Ok(())
     }
@@ -35,12 +108,69 @@ impl Game {
                 let symbol = match cell {
                     0 => ".",
                     1 => "X",
-                    2 => "0",
+                    2 => "O",
                     _ => "?",
                 };
                 print!("{} ", symbol);
             }
             println!();
         }
+    }
+
+    fn count_direction(&self, x: usize, y: usize, dx: isize, dy: isize) -> u32 {
+        let mut count = 0;
+        let player = self.board[y][x];
+
+        let mut cx = x as isize;
+        let mut cy = y as isize;
+
+        loop {
+            cx += dx;
+            cy += dy;
+
+            if cx < 0 || cy < 0 || cx >= 19 || cy >= 19 {
+                break;
+            }
+
+            if self.board[cy as usize][cx as usize] != player {
+                break;
+            }
+
+            count += 1;
+        }
+        count
+    }
+
+    pub fn check_win(&self, x: usize, y: usize) -> bool {
+        let directions = [
+            (1, 0),  // horizontal
+            (0, 1),  // vertical
+            (1, 1),  // diagonal \
+            (1, -1), // diagonal /
+        ];
+
+        for (dx, dy) in directions {
+            // check the row length
+            let count = 1
+                + self.count_direction(x, y, dx, dy)
+                + self.count_direction(x, y, -dx, -dy);
+
+            if count >= 5 {
+                return true;
+            }
+        }
+        false
+
+    }
+
+    pub fn is_board_full(&self) -> bool {
+        for row in self.board.iter() {
+            for cell in row.iter() {
+                if *cell == 0 {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }
