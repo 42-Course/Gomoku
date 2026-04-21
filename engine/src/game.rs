@@ -7,6 +7,7 @@ pub enum Player {
 }
 
 impl Player {
+    #[allow(dead_code)]
     pub fn opponent(self) -> Player {
         match self {
             Player::Black => Player::White,
@@ -22,17 +23,17 @@ impl Player {
     }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Move {
     pub x: usize,
     pub y: usize,
-    pub player: Player,
     pub captured: Vec<(usize, usize)> // coordinates of stones captured
 }
 
+#[allow(dead_code)]
 pub struct Game {
     pub board: Board,
-    pub current_player: Player,
     pub status: GameStatus,
     pub history: Vec<Move>,
     pub captures: (u8, u8), // (black, white)
@@ -44,15 +45,31 @@ pub enum GameStatus {
     Draw,
 }
 
+#[allow(dead_code)]
 impl Game {
     pub fn new() -> Self {
         Self {
             board: [[0; 19]; 19],
-            current_player: Player::Black,
             status: GameStatus::Ongoing,
-            history: Vec::new(),
+            history: Vec::new(), // The index of the history represents the move number, starting from 0 (player)
             captures: (0, 0),
         }
+    }
+
+    pub fn player_at(&self, move_index: usize) -> Player {
+        if move_index.is_multiple_of(2) {
+            Player::Black
+        } else {
+            Player::White
+        }
+    }
+
+    pub fn current_player(&self) -> Player {
+        self.player_at(self.history.len())
+    }
+
+    pub fn get_player_at(&self, index: usize) -> Player {
+        self.player_at(index)
     }
 
     pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), String> {
@@ -68,21 +85,18 @@ impl Game {
             return Err("Game already finished".to_string());
         }
 
-        self.board[y][x] = self.current_player.to_u8();
+        self.board[y][x] = self.current_player().to_u8();
         self.history.push(Move {
             x,
             y,
-            player: self.current_player,
             captured: Vec::new(),
         });
 
         if self.check_win(x, y) {
             // mark game as finished
-            self.status = GameStatus::Win(self.current_player)
+            self.status = GameStatus::Win(self.current_player())
         } else if self.is_board_full() {
             self.status = GameStatus::Draw;
-        } else {
-            self.current_player = self.current_player.opponent();
         }
 
         Ok(())
