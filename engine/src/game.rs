@@ -69,6 +69,11 @@ impl Game {
         }
 
         self.board[y][x] = self.current_player.to_u8();
+
+        if self.count_free_threes(x, y) >= 2 {
+            self.board[y][x] = 0;
+            return Err("Double three is forbidden".to_string());
+        }
         
         // apply captures
         let captured = self.apply_captures(x, y);
@@ -122,6 +127,82 @@ impl Game {
             }
             println!();
         }
+    }
+
+    fn count_free_threes(&self, x: usize, y: usize) -> u32 {
+        let mut count = 0;
+
+        let directions = [(1,0), (0,1), (1,1), (1,-1)];
+
+        for (dx, dy) in directions {
+            if self.is_free_three(x, y, dx, dy) {
+                count += 1;
+            }
+        }
+
+        count
+    }
+
+    fn is_free_three(&self, x: usize, y: usize, dx: isize, dy: isize) -> bool {
+        let player = self.board[y][x];
+
+        let mut line = Vec::new();
+
+        for i in -4..=4 {
+            let cx = x as isize + i * dx;
+            let cy = y as isize + i * dy;
+
+            if cx < 0 || cy < 0 || cx >= 19 || cy >= 19 {
+                line.push(3); //push three for outside board
+            } else {
+                line.push(self.board[cy as usize][cx as usize]);
+            }
+        }
+
+        for i in 0..=line.len() - 6 {
+            if line[i] != 0 { continue; }
+
+            // scan for pattern: . X X X . .
+            if line[i + 1] == player
+                && line[i + 2] == player
+                && line[i + 3] == player
+                && line[i + 4] == 0
+                && line[i + 5] == 0
+            {
+                return true;
+            }
+
+            // scan for pattern: . . X X X .
+            if line[i + 1] == 0
+                && line[i + 2] == player
+                && line[i + 3] == player
+                && line[i + 4] == player
+                && line[i + 5] == 0
+            {
+                return true;
+            }
+
+            // scan for pattern: . X X . X .
+            if line[i + 1] == player
+                && line[i + 2] == player
+                && line[i + 3] == 0
+                && line[i + 4] == player
+                && line[i + 5] == 0
+            {
+                return true;
+            }
+
+            // scan for pattern: . X . X X .
+            if line[i + 1] == player
+                && line[i + 2] == 0
+                && line[i + 3] == player
+                && line[i + 4] == player
+                && line[i + 5] == 0
+            {
+                return true;
+            }
+        }
+        false
     }
 
     fn count_direction(&self, x: usize, y: usize, dx: isize, dy: isize) -> u32 {
@@ -285,4 +366,63 @@ fn test_double_capture() {
     assert_eq!(game.board[0][2], 0);
     assert_eq!(game.board[0][4], 0);
     assert_eq!(game.board[0][5], 0);
+}
+
+#[test]
+fn test_double_three_forbidden() {
+    let mut game = Game::new();
+
+    // Setup shape:
+    //    0 1 2 3 4 5 6 7
+    //   0. . . . . . . .
+    //   1. X . . . . . .
+    //   2. . X . . . . .
+    //   3. . . . . . . .
+    //   4. . . . . X X .
+    //   5. . . . . . . .
+    //
+    // Playing center creates two open-threes
+
+    game.play_move(1, 1).unwrap(); // X
+    game.play_move(10, 18).unwrap(); // O
+    game.play_move(2, 2).unwrap(); // X
+    game.play_move(12, 15).unwrap(); // O
+    game.play_move(5, 4).unwrap(); // X
+    game.play_move(0, 2).unwrap(); // O
+    game.play_move(6, 4).unwrap(); // X
+    game.play_move(0, 3).unwrap(); // O
+
+    // This should be forbidden (double three)
+    let result = game.play_move(4, 4);
+
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_not_double_three_border() {
+    let mut game = Game::new();
+
+    // Setup shape:
+    //    0 1 2 3 4 5 6 7
+    //   0. . X . . . . .
+    //   1. . X . . . . .
+    //   2. . . X X . . .
+    //   3. . . . . . . .
+    //   4. . . . . . . .
+    //   5. . . . . . . .
+    //
+    // Playing center creates two open-threes
+
+    game.play_move(2, 0).unwrap(); // X
+    game.play_move(10, 18).unwrap(); // O
+    game.play_move(2, 1).unwrap(); // X
+    game.play_move(12, 15).unwrap(); // O
+    game.play_move(3, 2).unwrap(); // X
+    game.play_move(0, 5).unwrap(); // O
+    game.play_move(4, 2).unwrap(); // X
+    game.play_move(0, 3).unwrap(); // O
+
+    let result = game.play_move(2, 2);
+
+    assert!(result.is_ok());
 }
