@@ -1,10 +1,41 @@
-pub type Board = [[u8; 19]; 19];
-
-#[derive(Copy, Clone, PartialEq, Debug)]
+#[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Player {
     Black,
     White,
 }
+
+pub type Cell = Option<Player>;
+pub type Board = [[Cell; 19]; 19];
+
+
+#[derive(Copy, Clone, Debug)]
+pub enum Direction {
+    Horizontal,
+    Vertical,
+    Diagonal,
+    AntiDiagonal,
+}
+
+impl Direction {
+    pub fn delta(self) -> (isize, isize) {
+        match self {
+            Direction::Horizontal => (1, 0),
+            Direction::Vertical => (0, 1),
+            Direction::Diagonal => (1, 1),
+            Direction::AntiDiagonal => (1, -1),
+        }
+    }
+
+    pub fn all_directions() -> [(isize, isize); 4] {
+        [
+            Direction::Horizontal.delta(),   // (1, 0)
+            Direction::Vertical.delta(),     // (0, 1)
+            Direction::Diagonal.delta(),     // (1, 1)
+            Direction::AntiDiagonal.delta(), // (1, -1)
+        ]
+    }
+}
+
 
 impl Player {
     pub fn opponent(self) -> Player {
@@ -13,26 +44,18 @@ impl Player {
             Player::White => Player::Black,
         }
     }
-
-    pub fn to_u8(self) -> u8 {
-        match self {
-            Player::Black => 1,
-            Player::White => 2,
-        }
-    }
 }
 
+#[allow(dead_code)]
 #[derive(Clone)]
 pub struct Move {
     pub x: usize,
     pub y: usize,
-    pub player: Player,
     pub captured: Vec<(usize, usize)> // coordinates of stones captured
 }
 
 pub struct Game {
     pub board: Board,
-    pub current_player: Player,
     pub status: GameStatus,
     pub history: Vec<Move>,
     pub captures: (u8, u8), // (black, white)
@@ -44,15 +67,31 @@ pub enum GameStatus {
     Draw,
 }
 
+#[allow(dead_code)]
 impl Game {
     pub fn new() -> Self {
         Self {
-            board: [[0; 19]; 19],
-            current_player: Player::Black,
+            board: [[None; 19]; 19],
             status: GameStatus::Ongoing,
-            history: Vec::new(),
+            history: Vec::new(), // The index of the history represents the move number, starting from 0 (player)
             captures: (0, 0),
         }
+    }
+
+    pub fn player_at(&self, move_index: usize) -> Player {
+        if move_index.is_multiple_of(2) {
+            Player::Black
+        } else {
+            Player::White
+        }
+    }
+
+    pub fn current_player(&self) -> Player {
+        self.player_at(self.history.len())
+    }
+
+    pub fn get_player_at(&self, index: usize) -> Player {
+        self.player_at(index)
     }
 
     pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), String> {
@@ -60,7 +99,7 @@ impl Game {
             return Err("Out of bounds".to_string());
         }
 
-        if self.board[y][x] != 0 {
+        if self.board[y][x].is_some() {
             return Err("Cell already occupied".to_string());
         }
 
@@ -68,26 +107,26 @@ impl Game {
             return Err("Game already finished".to_string());
         }
 
-        self.board[y][x] = self.current_player.to_u8();
-        
+        let player = self.current_player();
+        self.board[y][x] = Some(player);
+
         // apply captures
         let captured = self.apply_captures(x, y);
 
         // update capture count
-        let captured_paris = captured.len() / 2;
-        match self.current_player {
-            Player::Black => self.captures.0 += captured_paris as u8,
-            Player::White => self.captures.1 += captured_paris as u8,
+        let captured_pairs = captured.len() / 2;
+        match player {
+            Player::Black => self.captures.0 += captured_pairs as u8,
+            Player::White => self.captures.1 += captured_pairs as u8,
         }
 
         self.history.push(Move {
             x,
             y,
-            player: self.current_player,
             captured,
         });
 
-        match self.current_player {
+        match player {
             Player::Black if self.captures.0 >= 5 => {
                 self.status = GameStatus::Win(Player::Black);
             }
@@ -96,37 +135,77 @@ impl Game {
             }
             _ => {
                 if self.check_win(x, y) {
-                    // mark game as finished
-                    self.status = GameStatus::Win(self.current_player)
+                    self.status = GameStatus::Win(player)
                 } else if self.is_board_full() {
                     self.status = GameStatus::Draw;
-                } else {
-                    self.current_player = self.current_player.opponent();
                 }
             }
+
         }
 
         Ok(())
     }
 
-    pub fn print_board(&self) {
-        for row in self.board.iter() {
-            for cell in row.iter() {
-                let symbol = match cell {
-                    0 => ".",
-                    1 => "X",
-                    2 => "O",
-                    _ => "?",
-                };
-                print!("{} ", symbol);
+    pub fn print_board_with(&self, show_coords: bool, print_turn: bool) {
+        if print_turn {
+            println!("\n-------\nTurn {:2}", self.history.len());
+        }
+
+        let height = self.board.len();
+        let width = self.board.first().map(|r| r.len()).unwrap_or(0);
+        let row_digits = height.to_string().len();
+
+        if show_coords {
+            // Tens row
+            print!("{}", " ".repeat(row_digits + 3));
+            for col in 0..width {
+                let tens = col / 10;
+                if tens > 0 {
+                    print!("{} ", tens);
+                } else {
+                    print!("  ");
+                }
             }
             println!();
+
+            // Ones row
+            print!("{}", " ".repeat(row_digits + 3));
+            for col in 0..width {
+                print!("{} ", col % 10);
+            }
+            println!();
+
+            // Separator
+            println!("{}{}", " ".repeat(row_digits + 3), "-".repeat(width * 2));
+        }
+
+        for (index, row) in self.board.iter().enumerate() {
+            let mut row_str = String::new();
+            for cell in row.iter() {
+                let symbol = match cell {
+                    None => ".",
+                    Some(Player::Black) => "X",
+                    Some(Player::White) => "O",
+                };
+                row_str.push_str(symbol);
+                row_str.push(' ');
+            }
+
+            if show_coords {
+                println!("{:2} | {}", index, row_str.trim_end());
+            } else {
+                println!("{}", row_str.trim_end());
+            }
         }
     }
 
-    fn count_direction(&self, x: usize, y: usize, dx: isize, dy: isize) -> u32 {
-        let mut count = 0;
+    pub fn print_board(&self) {
+        self.print_board_with(false, false);
+    }
+
+    fn count_direction(&self, x: usize, y: usize, dx: isize, dy: isize) -> u8 {
         let player = self.board[y][x];
+        let mut count = 0;
 
         let mut cx = x as isize;
         let mut cy = y as isize;
@@ -149,15 +228,7 @@ impl Game {
     }
 
     pub fn check_win(&self, x: usize, y: usize) -> bool {
-        let directions = [
-            (1, 0),  // horizontal
-            (0, 1),  // vertical
-            (1, 1),  // diagonal \
-            (1, -1), // diagonal /
-        ];
-
-        for (dx, dy) in directions {
-            // check the row length
+        for (dx, dy) in Direction::all_directions() {
             let count = 1
                 + self.count_direction(x, y, dx, dy)
                 + self.count_direction(x, y, -dx, -dy);
@@ -167,17 +238,14 @@ impl Game {
             }
         }
         false
-
     }
 
     fn apply_captures(&mut self, x: usize, y: usize) -> Vec<(usize, usize)> {
         let mut captured = Vec::new();
-        let player = self.current_player.to_u8();
-        let opponent = self.current_player.opponent().to_u8();
+        let player = self.current_player();
+        let opponent = player.opponent();
 
-        let directions = [(1, 0), (0, 1), (1, 1), (1, -1)];
-
-        for (dx, dy) in directions {
+        for (dx, dy) in Direction::all_directions() {
             for &(sx, sy) in &[(dx, dy), (-dx, -dy)] {
                 let x1 = x as isize + sx;
                 let y1 = y as isize + sy;
@@ -196,13 +264,12 @@ impl Game {
                 let (x2, y2) = (x2 as usize, y2 as usize);
                 let (x3, y3) = (x3 as usize, y3 as usize);
 
-                if self.board[y1][x1] == opponent
-                    && self.board[y2][x2] == opponent
-                    && self.board[y3][x3] == player
+                if self.board[y1][x1] == Some(opponent)
+                    && self.board[y2][x2] == Some(opponent)
+                    && self.board[y3][x3] == Some(player)
                 {
-                    //capture
-                    self.board[y1][x1] = 0;
-                    self.board[y2][x2] = 0;
+                    self.board[y1][x1] = None;
+                    self.board[y2][x2] = None;
 
                     captured.push((x1, y1));
                     captured.push((x2, y2));
@@ -213,17 +280,11 @@ impl Game {
     }
 
     pub fn is_board_full(&self) -> bool {
-        for row in self.board.iter() {
-            for cell in row.iter() {
-                if *cell == 0 {
-                    return false;
-                }
-            }
-        }
-        true
+        self.board.iter().all(|row| row.iter().all(|c| c.is_some()))
     }
 }
 
+#[allow(unused_imports)]
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -233,15 +294,15 @@ mod tests {
 fn test_horizontal_win() {
     let mut game = Game::new();
 
-    game.play_move(0, 0).unwrap();
-    game.play_move(0, 1).unwrap();
-    game.play_move(1, 0).unwrap();
-    game.play_move(1, 1).unwrap();
-    game.play_move(2, 0).unwrap();
-    game.play_move(2, 1).unwrap();
-    game.play_move(3, 0).unwrap();
-    game.play_move(3, 1).unwrap();
-    game.play_move(4, 0).unwrap();
+    game.play_move(0, 0).unwrap(); game.print_board_with(true, true);
+    game.play_move(0, 1).unwrap(); game.print_board_with(true, true);
+    game.play_move(1, 0).unwrap(); game.print_board_with(true, true);
+    game.play_move(1, 1).unwrap(); game.print_board_with(true, true);
+    game.play_move(2, 0).unwrap(); game.print_board_with(true, true);
+    game.play_move(2, 1).unwrap(); game.print_board_with(true, true);
+    game.play_move(3, 0).unwrap(); game.print_board_with(true, true);
+    game.play_move(3, 1).unwrap(); game.print_board_with(true, true);
+    game.play_move(4, 0).unwrap(); game.print_board_with(true, true);
 
     match game.status {
         GameStatus::Win(Player::Black) => {}
@@ -253,15 +314,15 @@ fn test_horizontal_win() {
 fn test_capture_simple() {
     let mut game = Game::new();
 
-    game.play_move(0, 0).unwrap(); // X
-    game.play_move(1, 0).unwrap(); // O
-    game.play_move(4, 0).unwrap(); // X
-    game.play_move(2, 0).unwrap(); // O
+    game.play_move(0, 0).unwrap(); game.print_board_with(true, true); // X
+    game.play_move(1, 0).unwrap(); game.print_board_with(true, true); // O
+    game.play_move(4, 0).unwrap(); game.print_board_with(true, true); // X
+    game.play_move(2, 0).unwrap(); game.print_board_with(true, true); // O
 
-    game.play_move(3, 0).unwrap(); // X → capture
+    game.play_move(3, 0).unwrap(); game.print_board_with(true, true); // X → capture
 
-    assert_eq!(game.board[0][1], 0);
-    assert_eq!(game.board[0][2], 0);
+    assert_eq!(game.board[0][1], None);
+    assert_eq!(game.board[0][2], None);
 }
 
 #[test]
@@ -269,20 +330,20 @@ fn test_double_capture() {
     let mut game = Game::new();
 
     // setup: X O O X O O X
-    game.play_move(0, 0).unwrap(); // X
-    game.play_move(1, 0).unwrap(); // O
-    game.play_move(0, 1).unwrap(); // X
-    game.play_move(2, 0).unwrap(); // O
+    game.play_move(0, 0).unwrap(); game.print_board_with(true, true); // X
+    game.play_move(1, 0).unwrap(); game.print_board_with(true, true); // O
+    game.play_move(0, 1).unwrap(); game.print_board_with(true, true); // X
+    game.play_move(2, 0).unwrap(); game.print_board_with(true, true); // O
 
-    game.play_move(0, 4).unwrap(); // X
-    game.play_move(4, 0).unwrap(); // O
-    game.play_move(6, 0).unwrap(); // X
-    game.play_move(5, 0).unwrap(); // O
+    game.play_move(0, 4).unwrap(); game.print_board_with(true, true); // X
+    game.play_move(4, 0).unwrap(); game.print_board_with(true, true); // O
+    game.play_move(6, 0).unwrap(); game.print_board_with(true, true); // X
+    game.play_move(5, 0).unwrap(); game.print_board_with(true, true); // O
 
-    game.play_move(3, 0).unwrap(); // X → should capture both pairs
+    game.play_move(3, 0).unwrap(); game.print_board_with(true, true); // X → should capture both pairs
 
-    assert_eq!(game.board[0][1], 0);
-    assert_eq!(game.board[0][2], 0);
-    assert_eq!(game.board[0][4], 0);
-    assert_eq!(game.board[0][5], 0);
+    assert_eq!(game.board[0][1], None);
+    assert_eq!(game.board[0][2], None);
+    assert_eq!(game.board[0][4], None);
+    assert_eq!(game.board[0][5], None);
 }
