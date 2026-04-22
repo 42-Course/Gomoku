@@ -1,5 +1,6 @@
 #[allow(dead_code)]
 pub const DEBUG_PRINT: bool = true;
+pub const MOVE_GEN_RADIUS: isize = 1;
 
 #[macro_export]
 macro_rules! play {
@@ -385,6 +386,75 @@ impl Game {
         false
     }
 
+    pub fn validate_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
+        if x >= 19 || y >= 19 {
+            return Err("Out of bounds");
+        }
+
+        if self.board[y][x].is_some() {
+            return Err("Cell already occupied");
+        }
+        let player = self.current_player();
+        self.board[y][x] = Some(player);
+
+        if self.count_free_threes(x, y) >= 2 {
+            self.board[y][x] = None;
+            return Err("Double three is forbidden");
+        }
+        self.board[y][x] = None;
+        Ok(())
+    }
+
+    pub fn generate_moves(&mut self) -> Vec<(usize, usize)> {
+        use std::collections::HashSet;
+
+        if self.history.is_empty() {
+            return vec![(9, 9)];
+        }
+        
+        let mut candidates = HashSet::new();
+
+        for y in 0..19 {
+            for x in 0..19 {
+                if self.board[y][x].is_none() {
+                    continue;
+                }
+
+                for dy in -MOVE_GEN_RADIUS..=MOVE_GEN_RADIUS {
+                    for dx in -MOVE_GEN_RADIUS..=MOVE_GEN_RADIUS {
+                        if dx == 0 && dy == 0 {
+                            continue;
+                        }
+
+                        let nx = x as isize + dx;
+                        let ny = y as isize + dy;
+
+                        if nx < 0 || ny < 0 || nx >= 19 || ny >= 19 {
+                            continue;
+                        }
+
+                        let nx = nx as usize;
+                        let ny = ny as usize;
+
+                        if self.board[ny][nx].is_some() {
+                            continue;
+                        }
+
+                        candidates.insert((nx, ny));
+                    }
+                }
+            }
+        }
+        let mut moves = Vec::new();
+
+        for (x, y) in candidates {
+            if self.validate_move(x, y).is_ok() {
+                moves.push((x, y));
+            }
+        }
+        moves
+    }
+
     pub fn is_board_full(&self) -> bool {
         self.board.iter().all(|row| row.iter().all(|c| c.is_some()))
     }
@@ -511,4 +581,42 @@ fn test_not_double_three_border() {
     let result = play!(game, 2, 2);
 
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_generate_moves_empty_board() {
+    let mut game = Game::new();
+
+    let moves = game.generate_moves();
+
+    assert_eq!(moves, vec![(9, 9)]);
+}
+
+#[test]
+fn test_generate_moves_near_single_stone() {
+    let mut game = Game::new();
+
+    play!(game, 9, 9).unwrap();
+
+    let moves = game.generate_moves();
+
+    assert!(moves.contains(&(8, 8)));
+    assert!(moves.contains(&(9, 8)));
+    assert!(moves.contains(&(10, 10)));
+    assert!(!moves.contains(&(0, 0)));
+}
+
+#[test]
+fn test_generate_moves_no_duplicates() {
+    let mut game = Game::new();
+
+    play!(game, 9, 9).unwrap();
+    play!(game, 10, 9).unwrap();
+
+    let moves = game.generate_moves();
+
+    let len = moves.len();
+    let unique: std::collections::HashSet<_> = moves.iter().cloned().collect();
+
+    assert_eq!(len, unique.len());
 }
