@@ -175,9 +175,37 @@ impl Game {
         Ok(())
     }
 
+
+    pub fn undo_move(&mut self) -> Result<(), String> {
+
+        let last = self.history.pop().ok_or("No moves to undo")?;
+        self.board[last.y][last.x] = None;
+        let last_player = self.current_player();
+        let last_opponent = self.current_player().opponent();
+
+        for (cx, cy) in &last.captured {
+            self.board[*cy][*cx] = Some(last_opponent);
+        }
+
+        let pairs = last.captured.len() / 2;
+
+        match last_player {
+            Player::Black => self.captures.0 -= pairs as u8,
+            Player::White => self.captures.1 -= pairs as u8,
+        }
+
+        self.status = GameStatus::Ongoing;
+
+        Ok(())
+    }
+
     pub fn print_board_with(&self, show_coords: bool, print_turn: bool) {
         if print_turn {
-            println!("\n-------\nTurn {:2} | Move {}", self.history.len(), self.history.last().unwrap());
+            print!("\n-------\nTurn {:2}", self.history.len());
+            if let Some(last_move) = self.history.last() {
+                print!(" | Move {}", last_move);
+            }
+            println!();
         }
 
         let height = self.board.len();
@@ -511,4 +539,34 @@ fn test_not_double_three_border() {
     let result = play!(game, 2, 2);
 
     assert!(result.is_ok());
+}
+
+#[test]
+fn test_undo_simple_move() {
+    let mut game = Game::new();
+    play!(game, 9, 9).unwrap();
+    game.undo_move().unwrap();
+    game.print_board_with(true, true);
+
+    assert_eq!(game.board[9][9], None);
+    assert_eq!(game.history.len(), 0);
+}
+
+#[test]
+fn test_undo_capture() {
+    let mut game = Game::new();
+
+    play!(game, 0, 0).unwrap(); // X
+    play!(game, 1, 0).unwrap(); // O
+    play!(game, 4, 0).unwrap(); // X
+    play!(game, 2, 0).unwrap(); // O
+
+    play!(game, 3, 0).unwrap(); // X capture
+
+    game.undo_move().unwrap();
+    game.print_board_with(true, true);
+
+    // stones should be restored
+    assert_eq!(game.board[0][1], Some(Player::White));
+    assert_eq!(game.board[0][2], Some(Player::White));
 }
