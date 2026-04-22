@@ -439,7 +439,7 @@ impl Game {
         if self.history.is_empty() {
             return vec![(9, 9)];
         }
-        
+
         let mut candidates = HashSet::new();
 
         for y in 0..19 {
@@ -647,6 +647,8 @@ fn test_generate_moves_no_duplicates() {
     let unique: std::collections::HashSet<_> = moves.iter().cloned().collect();
 
     assert_eq!(len, unique.len());
+}
+
 fn test_undo_simple_move() {
     let mut game = Game::new();
     play!(game, 9, 9).unwrap();
