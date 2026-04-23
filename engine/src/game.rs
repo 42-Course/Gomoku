@@ -659,6 +659,7 @@ fn test_generate_moves_no_duplicates() {
     assert_eq!(len, unique.len());
 }
 
+#[test]
 fn test_undo_simple_move() {
     let mut game = Game::new();
     play!(game, 9, 9).unwrap();
