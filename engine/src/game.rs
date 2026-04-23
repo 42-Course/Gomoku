@@ -1,6 +1,8 @@
 #[allow(dead_code)]
 pub const DEBUG_PRINT: bool = true;
 pub const MOVE_GEN_RADIUS: isize = 1;
+const BOARD_SIZE: usize = 19;
+const BOARD_SIZE_I: isize = 19;
 
 #[macro_export]
 macro_rules! play {
@@ -20,7 +22,7 @@ pub enum Player {
 }
 
 pub type Cell = Option<Player>;
-pub type Board = [[Cell; 19]; 19];
+pub type Board = [[Cell; BOARD_SIZE]; BOARD_SIZE];
 
 #[derive(Copy, Clone, Debug)]
 pub enum Direction {
@@ -96,7 +98,7 @@ pub enum GameStatus {
 impl Game {
     pub fn new() -> Self {
         Self {
-            board: [[None; 19]; 19],
+            board: [[None; BOARD_SIZE]; BOARD_SIZE],
             status: GameStatus::Ongoing,
             history: Vec::new(), // The index of the history represents the move number, starting from 0 (player)
             captures: (0, 0),
@@ -119,25 +121,41 @@ impl Game {
         self.player_at(index)
     }
 
-    pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), String> {
-        if x >= 19 || y >= 19 {
-            return Err("Out of bounds".to_string());
+    fn is_empty(&self, x: usize, y: usize) -> bool {
+        x < BOARD_SIZE && y < BOARD_SIZE && self.board[y][x].is_none()
+    }
+
+    fn empty_check(&self, x: usize, y: usize) -> Result<(), &'static str> {
+        if x >= BOARD_SIZE || y >= BOARD_SIZE {
+            return Err("Out of bounds");
         }
 
         if self.board[y][x].is_some() {
-            return Err("Cell already occupied".to_string());
+            return Err("Cell already occupied");
         }
+        Ok(())
+    }
 
+    fn place_stone(&mut self, x: usize, y: usize, player: Player) {
+        self.board[y][x] = Some(player);
+    }
+
+    fn remove_stone(&mut self, x: usize, y: usize) {
+        self.board[y][x] = None;
+    }
+
+    pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
+        self.empty_check(x, y)?;
         if !matches!(self.status, GameStatus::Ongoing) {
-            return Err("Game already finished".to_string());
+            return Err("Game already finished");
         }
 
         let player = self.current_player();
-        self.board[y][x] = Some(player);
+        self.place_stone(x, y, player);
 
         if self.count_free_threes(x, y) >= 2 {
-            self.board[y][x] = None;
-            return Err("Double three is forbidden".to_string());
+            self.remove_stone(x, y);
+            return Err("Double three is forbidden");
         }
 
         // apply captures
@@ -185,7 +203,7 @@ impl Game {
         let last_opponent = self.current_player().opponent();
 
         for (cx, cy) in &last.captured {
-            self.board[*cy][*cx] = Some(last_opponent);
+            self.place_stone(*cx, *cy, last_opponent);
         }
 
         let pairs = last.captured.len() / 2;
@@ -272,7 +290,7 @@ impl Game {
             cx += dx;
             cy += dy;
 
-            if cx < 0 || cy < 0 || cx >= 19 || cy >= 19 {
+            if cx < 0 || cy < 0 || cx >= BOARD_SIZE_I || cy >= BOARD_SIZE_I {
                 break;
             }
 
@@ -314,7 +332,7 @@ impl Game {
                 let x3 = x as isize + 3 * sx;
                 let y3 = y as isize + 3 * sy;
 
-                if x3 < 0 || y3 < 0 || x3 >= 19 || y3 >= 19 {
+                if x3 < 0 || y3 < 0 || x3 >= BOARD_SIZE_I || y3 >= BOARD_SIZE_I {
                     continue;
                 }
 
@@ -326,8 +344,8 @@ impl Game {
                     && self.board[y2][x2] == Some(opponent)
                     && self.board[y3][x3] == Some(player)
                 {
-                    self.board[y1][x1] = None;
-                    self.board[y2][x2] = None;
+                    self.remove_stone(x1, y1);
+                    self.remove_stone(x2, y2);
 
                     captured.push((x1, y1));
                     captured.push((x2, y2));
@@ -359,7 +377,7 @@ impl Game {
             let cx = x as isize + i * dx;
             let cy = y as isize + i * dy;
 
-            if cx < 0 || cy < 0 || cx >= 19 || cy >= 19 {
+            if cx < 0 || cy < 0 || cx >= BOARD_SIZE_I || cy >= BOARD_SIZE_I {
                 continue;
                 // line.push(None); //push three for outside board
             } else {
@@ -414,23 +432,15 @@ impl Game {
         false
     }
 
-    pub fn validate_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
-        if x >= 19 || y >= 19 {
-            return Err("Out of bounds");
-        }
+    fn is_valid_move(&mut self, x: usize, y:usize) -> bool {
+        if !self.is_empty(x, y) { return false; }
 
-        if self.board[y][x].is_some() {
-            return Err("Cell already occupied");
-        }
         let player = self.current_player();
-        self.board[y][x] = Some(player);
+        self.place_stone(x, y, player);
 
-        if self.count_free_threes(x, y) >= 2 {
-            self.board[y][x] = None;
-            return Err("Double three is forbidden");
-        }
-        self.board[y][x] = None;
-        Ok(())
+        let valid = self.count_free_threes(x, y) < 2;
+        self.remove_stone(x, y);
+        valid
     }
 
     pub fn generate_moves(&mut self) -> Vec<(usize, usize)> {
@@ -442,9 +452,9 @@ impl Game {
 
         let mut candidates = HashSet::new();
 
-        for y in 0..19 {
-            for x in 0..19 {
-                if self.board[y][x].is_none() {
+        for y in 0..BOARD_SIZE {
+            for x in 0..BOARD_SIZE {
+                if self.is_empty(x, y) {
                     continue;
                 }
 
@@ -457,14 +467,14 @@ impl Game {
                         let nx = x as isize + dx;
                         let ny = y as isize + dy;
 
-                        if nx < 0 || ny < 0 || nx >= 19 || ny >= 19 {
+                        if nx < 0 || ny < 0 || nx >= BOARD_SIZE_I || ny >= BOARD_SIZE_I {
                             continue;
                         }
 
                         let nx = nx as usize;
                         let ny = ny as usize;
 
-                        if self.board[ny][nx].is_some() {
+                        if !self.is_empty(nx, ny) {
                             continue;
                         }
 
@@ -476,7 +486,7 @@ impl Game {
         let mut moves = Vec::new();
 
         for (x, y) in candidates {
-            if self.validate_move(x, y).is_ok() {
+            if self.is_valid_move(x, y) {
                 moves.push((x, y));
             }
         }
