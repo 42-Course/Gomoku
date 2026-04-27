@@ -1,7 +1,7 @@
 //! Bitwise pattern detection on a single packed line.
 //!
 //! A "line" is one row, column, or diagonal of the board, packed as two
-//! `u32`s — `me` (the bits of the player we're scoring) and `opp` (their
+//! `u32`s, `me` (the bits of the player we're scoring) and `opp` (their
 //! opponent). Bit `i` of each word corresponds to cell `i` along the line.
 //! `len` says how many of the low bits are part of the line; the rest are
 //! zero in both words and therefore behave as "off-board" (a wall: not me,
@@ -9,7 +9,7 @@
 //!
 //! That convention is the whole reason this module is short: a pattern
 //! requiring an *empty* cell at an endpoint won't match against a board
-//! edge — the bit there is 0 in `empty()` — and a pattern requiring our
+//! edge, the bit there is 0 in `empty()`, and a pattern requiring our
 //! stone won't see one off-board either. Edges fall out for free.
 
 #![allow(dead_code)]
@@ -69,7 +69,7 @@ pub fn count_patterns(me: u32, opp: u32, len: u32) -> PatternCounts {
     let o = opp & mask;
     let e = !(m | o) & mask;
 
-    // Anything 5+ in a row counts as a five — a single bit is enough.
+    // Anything 5+ in a row counts as a five, a single bit is enough.
     let five_or_more = (m & (m >> 1) & (m >> 2) & (m >> 3) & (m >> 4)) & mask;
     let fives = five_or_more.count_ones();
 
