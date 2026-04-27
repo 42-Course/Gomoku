@@ -1,16 +1,15 @@
-//! AI module:
-//! - negamax + alpha-beta pruning
-//! - heuristic evaluation (stub for now)
+//! Negamax + alpha-beta search.
 //!
 //! Two entry points share one recursive core through a generic `Observer`:
-//!   - `best_move`          — fast path, uses `NoopObserver` (inlined away)
-//!   - `best_move_verbose`  — records the full search tree for the visualizer
+//!   - [`best_move`]         — fast path, uses [`NoopObserver`] (inlined away)
+//!   - [`best_move_verbose`] — records the full search tree for the visualizer
 //!
 //! Keeping the observer generic means the hot path pays nothing for the
-//! visualizer plumbing; the verbose path builds a `SearchNode` tree.
+//! visualizer plumbing; the verbose path builds a [`SearchNode`] tree.
 
 #![allow(dead_code)]
 
+use crate::ai::eval::evaluate;
 use crate::game::{Game, GameStatus, Player};
 
 /// Score returned for a decisive terminal position. Large enough to dominate
@@ -30,7 +29,6 @@ pub struct SearchResult {
 /// `score` is from the side-to-move's perspective at this node (negamax
 /// convention). `pruned` is true when an alpha cutoff stopped exploration
 /// before all children were visited.
-#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct SearchNode {
     pub mv: Option<(usize, usize)>,
@@ -44,7 +42,7 @@ pub struct SearchNode {
 }
 
 /// Hook points the search calls on entering/leaving every node.
-/// Implementations must be cheap, they're on the hot path.
+/// Implementations must be cheap — they're on the hot path.
 pub trait Observer {
     fn enter(
         &mut self,
@@ -126,12 +124,6 @@ impl Observer for TreeObserver {
     }
 }
 
-/// Heuristic evaluation from the side-to-move's perspective.
-/// Stub: always returns 0. Replace with real pattern scoring later.
-fn evaluate(_game: &Game) -> i32 {
-    0
-}
-
 /// If the position is terminal, return its score from the side-to-move's
 /// perspective. A player can never be on-move in a position they already won,
 /// so any `Win(_)` encountered here is a loss for the side to move.
@@ -176,7 +168,7 @@ fn negamax<O: Observer>(
 
     let moves = game.generate_moves();
     if moves.is_empty() {
-        // No legal continuations but game isn't flagged terminal, treat as
+        // No legal continuations but game isn't flagged terminal — treat as
         // a quiet position and hand off to the evaluator.
         let score = evaluate(game);
         observer.leave(score, false);
@@ -189,7 +181,7 @@ fn negamax<O: Observer>(
 
     for (x, y) in moves {
         // generate_moves already filters illegal placements, but play_move
-        // is still the source of truth, skip defensively if it rejects.
+        // is still the source of truth — skip defensively if it rejects.
         if game.play_move(x, y).is_err() {
             continue;
         }
@@ -264,7 +256,6 @@ mod tests {
         let mut game = Game::new();
         let result = best_move(&mut game, 0);
         assert_eq!(result.best_move, None);
-        assert_eq!(result.score, 0);
         assert_eq!(result.nodes_visited, 1);
     }
 
@@ -286,8 +277,31 @@ mod tests {
         let _ = best_move(&mut game, 2);
 
         assert_eq!(game.history.len(), history_before);
-        assert_eq!(game.board[9][9], Some(Player::Black));
-        assert_eq!(game.board[9][10], Some(Player::White));
+        assert_eq!(game.board.cell_at(9, 9), Some(Player::Black));
+        assert_eq!(game.board.cell_at(10, 9), Some(Player::White));
+    }
+
+    #[test]
+    fn blocks_an_immediate_win() {
+        // Black has four stones in a row against the left edge: cols 0..=3 on
+        // row 9. The only way Black can extend to five is at (4, 9). If White
+        // doesn't take it, Black wins on the next ply. White is on move.
+        let mut game = Game::new();
+        game.play_move(0, 9).unwrap();    // B
+        game.play_move(0, 0).unwrap();    // W (parking)
+        game.play_move(1, 9).unwrap();    // B
+        game.play_move(0, 1).unwrap();    // W
+        game.play_move(2, 9).unwrap();    // B
+        game.play_move(0, 2).unwrap();    // W
+        game.play_move(3, 9).unwrap();    // B
+        // White to move.
+
+        let result = best_move(&mut game, 2);
+        assert_eq!(
+            result.best_move,
+            Some((4, 9)),
+            "White must block the only winning square",
+        );
     }
 
     #[test]

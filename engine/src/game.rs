@@ -1,15 +1,16 @@
+use crate::constants::BOARD_SIZE;
+use crate::constants::BOARD_SIZE_I;
+use crate::board::Board;
+
 #[allow(dead_code)]
 pub const DEBUG_PRINT: bool = true;
 pub const MOVE_GEN_RADIUS: isize = 1;
-const BOARD_SIZE: usize = 19;
-const BOARD_SIZE_I: isize = 19;
-
 #[macro_export]
 macro_rules! play {
     ($game:expr, $x:expr, $y:expr) => {{
         let result = $game.play_move($x, $y);
         if $crate::game::DEBUG_PRINT {
-            $game.print_board_with(true, true);
+            $game.print_board(true);
         }
         result
     }};
@@ -22,7 +23,7 @@ pub enum Player {
 }
 
 pub type Cell = Option<Player>;
-pub type Board = [[Cell; BOARD_SIZE]; BOARD_SIZE];
+// pub type Board = [[Cell; BOARD_SIZE]; BOARD_SIZE];
 
 #[derive(Copy, Clone, Debug)]
 pub enum Direction {
@@ -54,6 +55,12 @@ impl Direction {
 
 
 impl Player {
+    pub fn idx(self) -> usize {
+        match self {
+            Player::Black => 0,
+            Player::White => 1,
+        }
+    }
     pub fn opponent(self) -> Player {
         match self {
             Player::Black => Player::White,
@@ -98,14 +105,14 @@ pub enum GameStatus {
 impl Game {
     pub fn new() -> Self {
         Self {
-            board: [[None; BOARD_SIZE]; BOARD_SIZE],
+            board: Board::new(),
             status: GameStatus::Ongoing,
             history: Vec::new(), // The index of the history represents the move number, starting from 0 (player)
             captures: (0, 0),
         }
     }
 
-    pub fn player_at(&self, move_index: usize) -> Player {
+    pub fn player_at_move(&self, move_index: usize) -> Player {
         if move_index.is_multiple_of(2) {
             Player::Black
         } else {
@@ -114,47 +121,20 @@ impl Game {
     }
 
     pub fn current_player(&self) -> Player {
-        self.player_at(self.history.len())
-    }
-
-    pub fn get_player_at(&self, index: usize) -> Player {
-        self.player_at(index)
-    }
-
-    fn is_empty(&self, x: usize, y: usize) -> bool {
-        x < BOARD_SIZE && y < BOARD_SIZE && self.board[y][x].is_none()
-    }
-
-    fn empty_check(&self, x: usize, y: usize) -> Result<(), &'static str> {
-        if x >= BOARD_SIZE || y >= BOARD_SIZE {
-            return Err("Out of bounds");
-        }
-
-        if self.board[y][x].is_some() {
-            return Err("Cell already occupied");
-        }
-        Ok(())
-    }
-
-    fn place_stone(&mut self, x: usize, y: usize, player: Player) {
-        self.board[y][x] = Some(player);
-    }
-
-    fn remove_stone(&mut self, x: usize, y: usize) {
-        self.board[y][x] = None;
+        self.player_at_move(self.history.len())
     }
 
     pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
-        self.empty_check(x, y)?;
+        self.board.empty_check(x, y)?;
         if !matches!(self.status, GameStatus::Ongoing) {
             return Err("Game already finished");
         }
 
         let player = self.current_player();
-        self.place_stone(x, y, player);
+        self.board.place_stone(x, y, player);
 
         if self.count_free_threes(x, y) >= 2 {
-            self.remove_stone(x, y);
+            self.board.remove_stone(x, y, player);
             return Err("Double three is forbidden");
         }
 
@@ -184,7 +164,7 @@ impl Game {
             _ => {
                 if self.check_win(x, y) {
                     self.status = GameStatus::Win(player)
-                } else if self.is_board_full() {
+                } else if self.board.is_full() {
                     self.status = GameStatus::Draw;
                 }
             }
@@ -198,12 +178,12 @@ impl Game {
     pub fn undo_move(&mut self) -> Result<(), String> {
 
         let last = self.history.pop().ok_or("No moves to undo")?;
-        self.board[last.y][last.x] = None;
         let last_player = self.current_player();
         let last_opponent = self.current_player().opponent();
+        self.board.remove_stone(last.x, last.y, last_player);
 
         for (cx, cy) in &last.captured {
-            self.place_stone(*cx, *cy, last_opponent);
+            self.board.place_stone(*cx, *cy, last_opponent);
         }
 
         let pairs = last.captured.len() / 2;
@@ -218,69 +198,22 @@ impl Game {
         Ok(())
     }
 
-    pub fn print_board_with(&self, show_coords: bool, print_turn: bool) {
+    pub fn print_board(&self, print_turn: bool) {
         if print_turn {
             print!("\n-------\nTurn {:2}", self.history.len());
+
             if let Some(last_move) = self.history.last() {
                 print!(" | Move {}", last_move);
             }
+
             println!();
         }
-
-        let height = self.board.len();
-        let width = self.board.first().map(|r| r.len()).unwrap_or(0);
-        let row_digits = height.to_string().len();
-
-        if show_coords {
-            // Tens row
-            print!("{}", " ".repeat(row_digits + 3));
-            for col in 0..width {
-                let tens = col / 10;
-                if tens > 0 {
-                    print!("{} ", tens);
-                } else {
-                    print!("  ");
-                }
-            }
-            println!();
-
-            // Ones row
-            print!("{}", " ".repeat(row_digits + 3));
-            for col in 0..width {
-                print!("{} ", col % 10);
-            }
-            println!();
-
-            // Separator
-            println!("{}{}", " ".repeat(row_digits + 3), "-".repeat(width * 2));
-        }
-
-        for (index, row) in self.board.iter().enumerate() {
-            let mut row_str = String::new();
-            for cell in row.iter() {
-                let symbol = match cell {
-                    None => ".",
-                    Some(Player::Black) => "X",
-                    Some(Player::White) => "O",
-                };
-                row_str.push_str(symbol);
-                row_str.push(' ');
-            }
-
-            if show_coords {
-                println!("{:2} | {}", index, row_str.trim_end());
-            } else {
-                println!("{}", row_str.trim_end());
-            }
-        }
-    }
-
-    pub fn print_board(&self) {
-        self.print_board_with(false, false);
+        self.board.print_board();
     }
 
     fn count_direction(&self, x: usize, y: usize, dx: isize, dy: isize) -> u8 {
-        let player = self.board[y][x];
+        let player = self.board.cell_at(x, y);
+        // let player = self.board[y][x];
         let mut count = 0;
 
         let mut cx = x as isize;
@@ -294,7 +227,8 @@ impl Game {
                 break;
             }
 
-            if self.board[cy as usize][cx as usize] != player {
+            // if self.board[cy as usize][cx as usize] != player {
+            if self.board.cell_at(cx as usize, cy as usize) != player {
                 break;
             }
 
@@ -340,12 +274,12 @@ impl Game {
                 let (x2, y2) = (x2 as usize, y2 as usize);
                 let (x3, y3) = (x3 as usize, y3 as usize);
 
-                if self.board[y1][x1] == Some(opponent)
-                    && self.board[y2][x2] == Some(opponent)
-                    && self.board[y3][x3] == Some(player)
+                if self.board.cell_at(x1, y1) == Some(opponent)
+                    && self.board.cell_at(x2, y2) == Some(opponent)
+                    && self.board.cell_at(x3, y3) == Some(player)
                 {
-                    self.remove_stone(x1, y1);
-                    self.remove_stone(x2, y2);
+                    self.board.remove_stone(x1, y1, opponent);
+                    self.board.remove_stone(x2, y2, opponent);
 
                     captured.push((x1, y1));
                     captured.push((x2, y2));
@@ -367,79 +301,48 @@ impl Game {
         count
     }
 
+    /// Does the just-placed stone at `(x, y)` create a free-three along
+    /// `(dx, dy)`?
+    ///
+    /// Packs the 9-cell window centered on the stone into bitmasks and
+    /// hands the detection off to [`crate::patterns::has_free_three`].
+    /// Off-board cells are dropped from the window — they act as walls,
+    /// so a 6-cell pattern that requires an empty endpoint won't match
+    /// against the board edge.
     fn is_free_three(&self, x: usize, y: usize, dx: isize, dy: isize) -> bool {
-        let player = self.board[y][x].unwrap();
+        let player = match self.board.cell_at(x, y) {
+            Some(p) => p,
+            None => return false,
+        };
 
-        // let mut line = Vec::new();
-        let mut line: Vec<Cell> = Vec::new(); // Cell = Option<Player>
-
+        let mut me = 0u32;
+        let mut opp = 0u32;
+        let mut len = 0u32;
         for i in -4..=4 {
             let cx = x as isize + i * dx;
             let cy = y as isize + i * dy;
-
             if cx < 0 || cy < 0 || cx >= BOARD_SIZE_I || cy >= BOARD_SIZE_I {
                 continue;
-                // line.push(None); //push three for outside board
-            } else {
-                line.push(self.board[cy as usize][cx as usize]);
             }
+            match self.board.cell_at(cx as usize, cy as usize) {
+                Some(p) if p == player => me |= 1 << len,
+                Some(_) => opp |= 1 << len,
+                None => {}
+            }
+            len += 1;
         }
 
-        if line.len() < 6 { return false; }
-        for i in 0..=line.len() - 6 {
-            if line[i].is_some() { continue; }
-
-            // scan for pattern: . X X X . .
-            if line[i + 1] == Some(player)
-                && line[i + 2] == Some(player)
-                && line[i + 3] == Some(player)
-                && line[i + 4].is_none()
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-
-            // scan for pattern: . . X X X .
-            if line[i + 1].is_none()
-                && line[i + 2] == Some(player)
-                && line[i + 3] == Some(player)
-                && line[i + 4] == Some(player)
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-
-            // scan for pattern: . X X . X .
-            if line[i + 1] == Some(player)
-                && line[i + 2] == Some(player)
-                && line[i + 3].is_none()
-                && line[i + 4] == Some(player)
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-
-            // scan for pattern: . X . X X .
-            if line[i + 1] == Some(player)
-                && line[i + 2].is_none()
-                && line[i + 3] == Some(player)
-                && line[i + 4] == Some(player)
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-        }
-        false
+        crate::patterns::has_free_three(me, opp, len)
     }
 
     fn is_valid_move(&mut self, x: usize, y:usize) -> bool {
-        if !self.is_empty(x, y) { return false; }
+        if !self.board.is_empty(x, y) { return false; }
 
         let player = self.current_player();
-        self.place_stone(x, y, player);
+        self.board.place_stone(x, y, player);
 
         let valid = self.count_free_threes(x, y) < 2;
-        self.remove_stone(x, y);
+        self.board.remove_stone(x, y, player);
         valid
     }
 
@@ -454,7 +357,7 @@ impl Game {
 
         for y in 0..BOARD_SIZE {
             for x in 0..BOARD_SIZE {
-                if self.is_empty(x, y) {
+                if self.board.is_empty(x, y) {
                     continue;
                 }
 
@@ -474,7 +377,7 @@ impl Game {
                         let nx = nx as usize;
                         let ny = ny as usize;
 
-                        if !self.is_empty(nx, ny) {
+                        if !self.board.is_empty(nx, ny) {
                             continue;
                         }
 
@@ -491,10 +394,6 @@ impl Game {
             }
         }
         moves
-    }
-
-    pub fn is_board_full(&self) -> bool {
-        self.board.iter().all(|row| row.iter().all(|c| c.is_some()))
     }
 }
 
@@ -535,10 +434,9 @@ fn test_capture_simple() {
 
     play!(game, 3, 0).unwrap(); // X → capture
 
-    assert_eq!(game.board[0][1], None);
-    assert_eq!(game.board[0][2], None);
+    assert_eq!(game.board.cell_at(1, 0), None);
+    assert_eq!(game.board.cell_at(2, 0), None);
 }
-
 #[test]
 fn test_double_capture() {
     let mut game = Game::new();
@@ -556,10 +454,10 @@ fn test_double_capture() {
 
     play!(game, 3, 0).unwrap(); // X → should capture both pairs
 
-    assert_eq!(game.board[0][1], None);
-    assert_eq!(game.board[0][2], None);
-    assert_eq!(game.board[0][4], None);
-    assert_eq!(game.board[0][5], None);
+    assert_eq!(game.board.cell_at(1, 0), None);
+    assert_eq!(game.board.cell_at(2, 0), None);
+    assert_eq!(game.board.cell_at(4, 0), None);
+    assert_eq!(game.board.cell_at(5, 0), None);
 }
 
 #[test]
@@ -664,9 +562,9 @@ fn test_undo_simple_move() {
     let mut game = Game::new();
     play!(game, 9, 9).unwrap();
     game.undo_move().unwrap();
-    game.print_board_with(true, true);
+    game.print_board(true);
 
-    assert_eq!(game.board[9][9], None);
+    assert_eq!(game.board.cell_at(9, 9), None);
     assert_eq!(game.history.len(), 0);
 }
 
@@ -682,9 +580,9 @@ fn test_undo_capture() {
     play!(game, 3, 0).unwrap(); // X capture
 
     game.undo_move().unwrap();
-    game.print_board_with(true, true);
+    game.print_board(true);
 
     // stones should be restored
-    assert_eq!(game.board[0][1], Some(Player::White));
-    assert_eq!(game.board[0][2], Some(Player::White));
+    assert_eq!(game.board.cell_at(1, 0), Some(Player::White));
+    assert_eq!(game.board.cell_at(2, 0), Some(Player::White));
 }
