@@ -1,22 +1,44 @@
+//! Bit-packed board storage and line iteration.
+//!
+//! Stones are stored in two per-player [`BitBoard`]s rather than a 2D array
+//! of [`Cell`]s. The board exposes two complementary views:
+//!
+//! - **Cell-level** ([`Board::cell_at`], [`Board::is_empty`], …) for rule
+//!   logic that thinks one square at a time.
+//! - **Line-level** ([`Board::pack_line`], [`Board::for_each_line`]) for
+//!   pattern detection that thinks one row/column/diagonal at a time.
+//!
+//! The line view packs up to 19 cells of one direction into a pair of
+//! `u32` bitmasks `(me, opp)`. Off-the-board positions are zero in *both*
+//! masks, which makes them walls - see the [`crate::patterns`] module for
+//! how that interacts with pattern recognition.
+
 use crate::constants::{BOARD_SIZE, BOARD_SIZE_I};
 use crate::game::{Cell, Player};
 
+/// Total number of cells on the board (`BOARD_SIZE * BOARD_SIZE`).
 const CELL_COUNT: usize = BOARD_SIZE * BOARD_SIZE;
+
+/// How many `u64` words are needed to hold one bit per cell.
 const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 
-#[allow(dead_code)]
-const LAST_WORDS_BITS: usize = CELL_COUNT % 64;
-
+/// One player's stones, stored as a bitmap with one bit per cell.
+///
+/// Cells are flattened in row-major order: bit `y * BOARD_SIZE + x` is set
+/// when that cell holds a stone. Six `u64` words is enough for 19×19 = 361
+/// cells with room to spare.
 pub struct BitBoard {
-    words: [u64; 6],
+    words: [u64; WORD_COUNT],
 }
 
 impl BitBoard {
+    /// Create an empty bitboard.
     pub fn new() -> Self {
         Self {
             words: [0; 6]
         }
     }
+
     fn set(&mut self, idx: usize) {
         let w = idx / 64;
         let b = idx % 64;
@@ -35,25 +57,30 @@ impl BitBoard {
         (self.words[w] >> b) & 1 == 1
     }
 
+    /// Map `(x, y)` to a flat bit index in row-major order.
     fn index(x: usize, y: usize) -> usize {
         y * BOARD_SIZE + x
     }
 
+    /// Mark cell `(x, y)` as containing a stone.
     pub fn place_stone(&mut self, x: usize, y: usize) {
         let idx = Self::index(x, y);
         self.set(idx);
     }
 
+    /// Clear the stone at cell `(x, y)`.
     pub fn remove_stone(&mut self, x: usize, y: usize) {
         let idx = Self::index(x, y);
         self.clear(idx);
     }
 
+    /// Whether cell `(x, y)` holds a stone.
     pub fn is_occupied(&self, x: usize, y: usize) -> bool {
         let idx = Self::index(x, y);
         self.get(idx)
     }
 
+    /// Bitwise OR with another bitboard. Used to compute "any stone here".
     fn or(&self, other: &Self) -> Self {
         let mut out = Self::new();
 
@@ -65,35 +92,50 @@ impl BitBoard {
     }
 }
 
+/// The full game board: one [`BitBoard`] per player.
+///
+/// Indexed `boards[player.idx()]`; black is index 0 and white is index 1.
 pub struct Board {
     boards: [BitBoard; 2],
 }
 
 impl Board {
+    /// Create an empty board.
     pub fn new() -> Self {
         Self {
             boards: [BitBoard::new(), BitBoard::new()]
         }
     }
 
+    /// Place a stone for `player` at `(x, y)`.
+    ///
+    /// No bounds or occupancy check is performed - callers should go
+    /// through [`Board::empty_check`] first.
     pub fn place_stone(&mut self, x: usize, y: usize, player: Player) {
         self.boards[player.idx()].place_stone(x, y);
     }
 
+    /// Remove `player`'s stone at `(x, y)`. Used by undo and capture.
     pub fn remove_stone(&mut self, x: usize, y: usize, player: Player) {
         self.boards[player.idx()].remove_stone(x, y);
     }
 
-    #[allow(dead_code)]
-    pub fn has(&mut self, x: usize, y: usize, player: Player) {
-        self.boards[player.idx()].is_occupied(x, y);
+    /// Check if the given coordinate contains the player
+    pub fn has(&self, x: usize, y: usize, player: Player) -> bool {
+        self.boards[player.idx()].is_occupied(x, y)
     }
 
+    /// Whether `(x, y)` is empty for *both* players.
     pub fn is_empty(&self, x: usize, y: usize) -> bool {
-        !self.boards[Player::Black.idx()].is_occupied(x, y) &&
-        !self.boards[Player::White.idx()].is_occupied(x, y)
+        !self.has(x, y, Player::Black) && !self.has(x, y, Player::White)
     }
 
+    /// Validate that `(x, y)` is a legal placement target.
+    ///
+    /// # Errors
+    ///
+    /// - `"Out of bounds"` if `x` or `y` is outside `0..BOARD_SIZE`.
+    /// - `"Cell already occupied"` if either player has a stone there.
     pub fn empty_check(&self, x: usize, y: usize) -> Result<(), &'static str> {
         if x >= BOARD_SIZE || y >= BOARD_SIZE {
             return Err("Out of bounds");
@@ -105,6 +147,9 @@ impl Board {
         Ok(())
     }
 
+    /// Look up the contents of cell `(x, y)`.
+    ///
+    /// Returns `Some(Player)` if a stone is present, `None` if empty.
     pub fn cell_at(&self, x: usize, y: usize) -> Cell {
         if self.boards[Player::Black.idx()].is_occupied(x, y) {
             Some(Player::Black)
@@ -115,6 +160,7 @@ impl Board {
         }
     }
 
+    /// Whether every cell on the board is occupied (used to flag draws).
     pub fn is_full(&self) -> bool {
         let occupied = self.boards[Player::Black.idx()].or(&self.boards[Player::White.idx()]);
         let w = BOARD_SIZE / 64;
@@ -134,14 +180,24 @@ impl Board {
     /// Pack one straight line of cells into two bitmasks.
     ///
     /// Walks from `(x0, y0)` along `(dx, dy)` for at most `max_len` steps,
-    /// stopping at the board edge. Returns `(me, opp, len)` where bit `i`
-    /// of `me` is set if the i-th cell holds `player`, bit `i` of `opp` is
-    /// set if it holds the opponent, and `len` is the number of cells we
-    /// walked. `len <= 19 < 32`, so a `u32` is always wide enough.
+    /// stopping at the board edge. Returns `(me, opp, len)` where:
+    ///
+    /// - bit `i` of `me`  is set when the i-th cell holds `player`,
+    /// - bit `i` of `opp` is set when it holds the opponent,
+    /// - `len` is the number of cells actually visited.
+    ///
+    /// `len <= 19 < 32`, so a `u32` is always wide enough.
     ///
     /// Cells beyond the line (off-board, or past `len`) sit at zero in
-    /// both masks — pattern matchers that need an *empty* cell at an
+    /// both masks - pattern matchers that need an *empty* cell at an
     /// endpoint won't see them as empty, so the board edge is a wall.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// // Pack the row containing y = 9 from left to right, for Black.
+    /// let (me, opp, len) = board.pack_line(0, 9, 1, 0, BOARD_SIZE as u32, Player::Black);
+    /// ```
     pub fn pack_line(
         &self,
         x0: isize,
@@ -151,8 +207,7 @@ impl Board {
         max_len: u32,
         player: Player,
     ) -> (u32, u32, u32) {
-        let opp_idx = player.opponent().idx();
-        let me_idx = player.idx();
+        let opponent = player.opponent();
         let mut me = 0u32;
         let mut opp = 0u32;
         let mut len = 0u32;
@@ -160,9 +215,9 @@ impl Board {
         let mut y = y0;
         while len < max_len && (0..BOARD_SIZE_I).contains(&x) && (0..BOARD_SIZE_I).contains(&y) {
             let (ux, uy) = (x as usize, y as usize);
-            if self.boards[me_idx].is_occupied(ux, uy) {
+            if self.has(ux, uy, player) {
                 me |= 1 << len;
-            } else if self.boards[opp_idx].is_occupied(ux, uy) {
+            } else if self.has(ux, uy, opponent) {
                 opp |= 1 << len;
             }
             x += dx;
@@ -175,8 +230,24 @@ impl Board {
     /// Visit every distinct horizontal/vertical/diagonal/anti-diagonal line
     /// on the board for `player`, calling `f(me, opp, len)` for each.
     ///
-    /// Lines shorter than `min_len` are skipped (no useful pattern fits in
-    /// fewer cells, and skipping cuts the diagonal count almost in half).
+    /// Each line is packed via [`Board::pack_line`]. Lines shorter than
+    /// `min_len` are skipped (no useful pattern fits in fewer cells, and
+    /// skipping cuts the diagonal count almost in half).
+    ///
+    /// # Coverage
+    ///
+    /// - All `BOARD_SIZE` rows and `BOARD_SIZE` columns.
+    /// - Both diagonal families, starting from cells where the previous
+    ///   cell is off-board.
+    ///
+    /// # Examples
+    ///
+    /// ```ignore
+    /// let mut totals = PatternCounts::default();
+    /// board.for_each_line(Player::Black, 5, |me, opp, len| {
+    ///     totals.add(&count_patterns(me, opp, len));
+    /// });
+    /// ```
     pub fn for_each_line<F>(&self, player: Player, min_len: u32, mut f: F)
     where
         F: FnMut(u32, u32, u32),
@@ -227,6 +298,10 @@ impl Board {
         }
     }
 
+    /// Print the board to stdout in human-readable form.
+    ///
+    /// Black is shown as `X`, White as `O`, and empty cells as `.`. Used
+    /// for debugging and the [`crate::play!`] macro.
     pub fn print_board(&self) {
         let height = BOARD_SIZE;
         let width = BOARD_SIZE;

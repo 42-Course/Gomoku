@@ -11,6 +11,14 @@
 //! requiring an *empty* cell at an endpoint won't match against a board
 //! edge, the bit there is 0 in `empty()`, and a pattern requiring our
 //! stone won't see one off-board either. Edges fall out for free.
+//!
+//! # Public API
+//!
+//! - [`count_patterns`] — tally every maximal run on a line by length and
+//!   openness.
+//! - [`has_free_three`] — yes/no check for the four free-three shapes,
+//!   used by the double-three rule.
+//! - [`PatternCounts`] — the tally type produced by [`count_patterns`].
 
 #![allow(dead_code)]
 
@@ -18,18 +26,29 @@
 ///
 /// "Max-length" means each entry counts a run by its longest extent: a
 /// 5-run is *not* also counted as several 4-runs.
+///
+/// "Open" runs have empty cells on both sides; "closed" runs have an
+/// opponent stone or the board edge on exactly one side.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub struct PatternCounts {
+    /// Runs of 5 or more in a row.
     pub fives: u32,
+    /// 4-runs with empty cells on both sides.
     pub open_four: u32,
+    /// 4-runs with one side blocked.
     pub closed_four: u32,
+    /// 3-runs with empty cells on both sides.
     pub open_three: u32,
+    /// 3-runs with one side blocked.
     pub closed_three: u32,
+    /// 2-runs with empty cells on both sides.
     pub open_two: u32,
+    /// 2-runs with one side blocked.
     pub closed_two: u32,
 }
 
 impl PatternCounts {
+    /// Add the counts in `rhs` to `self` field-by-field.
     pub fn add(&mut self, rhs: &PatternCounts) {
         self.fives += rhs.fives;
         self.open_four += rhs.open_four;
@@ -63,6 +82,26 @@ fn run_starts(m: u32, k: u32, mask: u32) -> u32 {
 }
 
 /// Walk one packed line and tally every distinct run by length and openness.
+///
+/// Each maximal run contributes to exactly one bucket — a 5-run is a
+/// `fives`, *not* additionally a `closed_four` plus a `closed_three`. Runs
+/// shorter than two cells are ignored.
+///
+/// # Arguments
+///
+/// - `me`  — bits of the player whose patterns we're tallying.
+/// - `opp` — bits of the opponent.
+/// - `len` — number of cells in the packed line (`<= 19`).
+///
+/// # Examples
+///
+/// ```ignore
+/// // ".XXXX." has one open four.
+/// let me  = 0b011110;
+/// let opp = 0;
+/// let counts = count_patterns(me, opp, 6);
+/// assert_eq!(counts.open_four, 1);
+/// ```
 pub fn count_patterns(me: u32, opp: u32, len: u32) -> PatternCounts {
     let mask = line_mask(len);
     let m = me & mask;

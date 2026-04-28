@@ -4,16 +4,31 @@
 //! The negamax search calls [`evaluate`] only at non-terminal nodes; the win
 //! shortcut here is just a safety net for callers outside the search.
 //!
-//! Pattern detection runs against the bitboard one *line* at a time —
-//! [`Board::for_each_line`] hands each row/column/diagonal to
-//! [`patterns::count_patterns`], which recognizes runs with bit-shift
-//! masks. That's substantially cheaper than the per-cell walk this module
-//! used to do, especially under a deep search.
+//! # Pipeline
+//!
+//! 1. [`Board::for_each_line`] yields every row, column, and diagonal as a
+//!    pair of `(me, opp)` bitmasks plus a length.
+//! 2. [`crate::patterns::count_patterns`] tallies the runs on each line by
+//!    length and openness.
+//! 3. [`score_from_counts`] converts the tallies to a single integer using
+//!    the per-pattern weights below.
+//!
+//! That's substantially cheaper than the per-cell walk this module used to
+//! do, especially under a deep search.
+//!
+//! # Sign convention
+//!
+//! [`evaluate`] returns the score from the perspective of
+//! [`Game::current_player`]; positive means the side to move is winning.
+//! This is the convention negamax expects — the caller negates between plies.
 
 use crate::board::Board;
 use crate::game::{Game, GameStatus, Player};
 use crate::patterns::{count_patterns, PatternCounts};
 
+/// Score returned for a winning terminal position. Mirrors
+/// [`crate::ai::search::WIN_SCORE`] so the two modules can be reasoned
+/// about independently.
 pub const WIN_SCORE: i32    = 1_000_000;
 const OPEN_FOUR: i32        = 100_000;
 const CLOSED_FOUR: i32      = 20_000;
@@ -24,10 +39,22 @@ const CLOSED_TWO: i32       = 50;
 const CAPTURE_PAIR: i32     = 2_000;
 
 /// A single 5-in-a-row already wins, but we never reach this branch in
-/// search — terminal_score has the final word at the root. Five-counts
+/// search — `terminal_score` has the final word at the root. Five-counts
 /// here are a defensive fallback if eval is called from outside.
 const FIVE_FALLBACK: i32    = WIN_SCORE;
 
+/// Score the position from the side-to-move's perspective.
+///
+/// Positive means the player on move is favored, negative means the
+/// opponent is. Decisive positions return `±WIN_SCORE`; everything else
+/// is a weighted sum of pattern counts plus a capture-difference term.
+///
+/// # Examples
+///
+/// ```ignore
+/// let game = Game::new();
+/// assert_eq!(evaluate(&game), 0); // empty board is balanced
+/// ```
 pub fn evaluate(game: &Game) -> i32 {
     if let GameStatus::Win(winner) = game.status {
         return if winner == game.current_player() { WIN_SCORE } else { -WIN_SCORE };
@@ -41,6 +68,7 @@ pub fn evaluate(game: &Game) -> i32 {
     my_score - opp_score + capture_score
 }
 
+/// Capture pairs `me` is ahead by. Negative when `me` is behind.
 fn capture_diff(game: &Game, me: Player) -> i32 {
     let (black, white) = (game.captures.0 as i32, game.captures.1 as i32);
     match me {
@@ -49,6 +77,7 @@ fn capture_diff(game: &Game, me: Player) -> i32 {
     }
 }
 
+/// Total pattern score for one player across every line on the board.
 fn score_player(board: &Board, player: Player) -> i32 {
     let mut totals = PatternCounts::default();
     // No useful pattern fits in fewer than 5 cells — skip stub diagonals.
@@ -60,6 +89,8 @@ fn score_player(board: &Board, player: Player) -> i32 {
     score_from_counts(&totals)
 }
 
+/// Convert a [`PatternCounts`] tally to an integer score using the
+/// per-pattern weights at the top of this module.
 fn score_from_counts(c: &PatternCounts) -> i32 {
     (c.fives as i32) * FIVE_FALLBACK
         + (c.open_four as i32) * OPEN_FOUR

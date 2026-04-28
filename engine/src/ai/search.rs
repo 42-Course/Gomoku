@@ -1,11 +1,30 @@
 //! Negamax + alpha-beta search.
 //!
-//! Two entry points share one recursive core through a generic `Observer`:
-//!   - [`best_move`]         — fast path, uses [`NoopObserver`] (inlined away)
-//!   - [`best_move_verbose`] — records the full search tree for the visualizer
+//! Two entry points share one recursive core through a generic [`Observer`]:
+//!
+//! - [`best_move`]         — fast path, uses [`NoopObserver`] (inlined away).
+//! - [`best_move_verbose`] — records the full search tree for the visualizer.
 //!
 //! Keeping the observer generic means the hot path pays nothing for the
 //! visualizer plumbing; the verbose path builds a [`SearchNode`] tree.
+//!
+//! # Conventions
+//!
+//! - Scores are from the side-to-move's perspective (negamax).
+//! - Terminal wins return `-(WIN_SCORE + depth)` so faster mates outrank
+//!   slower ones.
+//! - The search uses make/unmake on a single [`Game`]; on return the game
+//!   is in exactly the state it was on entry.
+//!
+//! # Examples
+//!
+//! ```ignore
+//! let mut game = Game::new();
+//! let result = best_move(&mut game, 4);
+//! if let Some((x, y)) = result.best_move {
+//!     game.play_move(x, y).unwrap();
+//! }
+//! ```
 
 #![allow(dead_code)]
 
@@ -19,8 +38,11 @@ pub const WIN_SCORE: i32 = 1_000_000;
 /// What the search returns to the caller.
 #[derive(Debug, Clone)]
 pub struct SearchResult {
+    /// The chosen move, or `None` at depth 0 / when no legal moves exist.
     pub best_move: Option<(usize, usize)>,
+    /// Score from the root side-to-move's perspective.
     pub score: i32,
+    /// Total nodes (including leaves) visited during the search.
     pub nodes_visited: u64,
 }
 
@@ -31,19 +53,31 @@ pub struct SearchResult {
 /// before all children were visited.
 #[derive(Debug, Clone)]
 pub struct SearchNode {
+    /// The move that led to this node. `None` at the root.
     pub mv: Option<(usize, usize)>,
+    /// Whose turn it is at this node.
     pub player_to_move: Player,
+    /// Plies still to expand below this node.
     pub depth_remaining: u32,
+    /// Alpha bound on entry.
     pub alpha_in: i32,
+    /// Beta bound on entry.
     pub beta_in: i32,
+    /// Final score returned by this node, side-to-move's perspective.
     pub score: i32,
+    /// `true` if an alpha-beta cutoff stopped expansion early.
     pub pruned: bool,
+    /// Recorded children, in the order they were visited.
     pub children: Vec<SearchNode>,
 }
 
 /// Hook points the search calls on entering/leaving every node.
-/// Implementations must be cheap — they're on the hot path.
+///
+/// Every recursive call into [`negamax`] fires `enter` once on the way
+/// down and `leave` once on the way up. Implementations must be cheap —
+/// they're on the hot path.
 pub trait Observer {
+    /// Called once before exploring a node.
     fn enter(
         &mut self,
         mv: Option<(usize, usize)>,
@@ -52,6 +86,9 @@ pub trait Observer {
         alpha: i32,
         beta: i32,
     );
+
+    /// Called once after a node returns. `pruned` is `true` if exploration
+    /// stopped on an alpha-beta cutoff.
     fn leave(&mut self, score: i32, pruned: bool);
 }
 
@@ -67,17 +104,22 @@ impl Observer for NoopObserver {
 }
 
 /// Builds a tree of every visited node for the visualizer.
+///
+/// The observer maintains a stack mirroring the recursion: `enter` pushes
+/// a fresh node, `leave` pops the current node and attaches it to its
+/// parent (or stores it as the root when the stack empties).
 pub struct TreeObserver {
     stack: Vec<SearchNode>,
     root: Option<SearchNode>,
 }
 
 impl TreeObserver {
+    /// Create an empty observer ready to record a search.
     pub fn new() -> Self {
         Self { stack: Vec::new(), root: None }
     }
 
-    /// Consumes the observer and returns the recorded root (if any).
+    /// Consume the observer and return the recorded root (if any).
     pub fn into_tree(self) -> Option<SearchNode> {
         self.root
     }
@@ -138,10 +180,16 @@ fn terminal_score(game: &Game, depth: u32) -> Option<i32> {
     }
 }
 
-/// Negamax with alpha-beta. Returns (score, best_move_at_this_node).
+/// Negamax with alpha-beta. Returns `(score, best_move_at_this_node)`.
 ///
 /// `incoming_mv` is the move that led to this node, used only by the
 /// observer. It's `None` at the root.
+///
+/// # Panics
+///
+/// Panics if [`Game::undo_move`] fails after a successful
+/// [`Game::play_move`]; that combination should be impossible and
+/// indicates a bug elsewhere.
 fn negamax<O: Observer>(
     game: &mut Game,
     depth: u32,
@@ -210,7 +258,16 @@ fn negamax<O: Observer>(
 }
 
 /// Fast path: run alpha-beta and return the best move + score.
+///
 /// The game is left untouched (every played move is undone).
+///
+/// # Examples
+///
+/// ```ignore
+/// let mut game = Game::new();
+/// let result = best_move(&mut game, 4);
+/// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
+/// ```
 pub fn best_move(game: &mut Game, depth: u32) -> SearchResult {
     let mut obs = NoopObserver;
     let mut nodes = 0u64;
@@ -227,6 +284,9 @@ pub fn best_move(game: &mut Game, depth: u32) -> SearchResult {
 }
 
 /// Verbose path: same search, plus a recorded tree for the visualizer.
+///
+/// Returns the same [`SearchResult`] as [`best_move`] alongside the root
+/// [`SearchNode`] of the explored tree (if any nodes were visited).
 pub fn best_move_verbose(
     game: &mut Game,
     depth: u32,
