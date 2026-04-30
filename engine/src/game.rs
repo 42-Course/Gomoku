@@ -1,39 +1,87 @@
+//! Gomoku rules: turns, captures, win/draw detection, and the no-double-three
+//! restriction.
+//!
+//! The [`Game`] type owns a [`Board`] plus the small amount of state Gomoku
+//! needs around it: whose move it is (derived from `history.len()`), how
+//! many capture pairs each player has, and a redo-able move history.
+//!
+//! ## Rules implemented
+//!
+//! - **Five in a row** wins (any direction). See [`Game::check_win`].
+//! - **Captures**: flanking two opponent stones with your own stones along
+//!   any of the eight directions removes them. Five capture pairs also
+//!   wins. See [`Game::apply_captures`].
+//! - **Double three forbidden**: a move that creates two simultaneous free
+//!   threes is rejected. See [`Game::is_free_three`], which delegates the
+//!   actual recognition to [`crate::patterns::has_free_three`].
+//!
+//! ## Move generation
+//!
+//! [`Game::generate_moves`] yields every empty cell within
+//! [`MOVE_GEN_RADIUS`] of an existing stone (so the search doesn't waste
+//! time on isolated points). The search calls this directly.
+
 use crate::constants::BOARD_SIZE;
 use crate::constants::BOARD_SIZE_I;
 use crate::board::Board;
 
-#[allow(dead_code)]
-pub const DEBUG_PRINT: bool = true;
+/// Chebyshev radius used by [`Game::generate_moves`] to grow candidate
+/// moves out from existing stones. `1` means "the 8 neighbours".
 pub const MOVE_GEN_RADIUS: isize = 1;
+
+/// Convenience wrapper around [`Game::play_move`] for tests.
+///
+/// Plays the given coordinate and prints the resulting board.
+/// Evaluates to the same `Result` that
+/// [`Game::play_move`] returns.
+///
+/// # Examples
+///
+/// ```ignore
+/// use engine::play;
+/// let mut game = Game::new();
+/// play!(game, 9, 9).unwrap();
+/// ```
 #[macro_export]
 macro_rules! play {
     ($game:expr, $x:expr, $y:expr) => {{
         let result = $game.play_move($x, $y);
-        if $crate::game::DEBUG_PRINT {
-            $game.print_board(true);
-        }
+        $game.print_board(true);
         result
     }};
 }
 
+/// Which side a stone belongs to. Black moves first (index `0`).
 #[derive(Copy, Clone, PartialEq, Eq, Debug)]
 pub enum Player {
+    /// First player. Conventionally drawn as `X`.
     Black,
+    /// Second player. Conventionally drawn as `O`.
     White,
 }
 
+/// Optional stone at a board cell: `Some(player)` if occupied, `None` if empty.
 pub type Cell = Option<Player>;
-// pub type Board = [[Cell; BOARD_SIZE]; BOARD_SIZE];
 
+/// One of the four directions a Gomoku line can run in.
+///
+/// Captures and win checks iterate all four. The "anti-diagonal" runs from
+/// upper-left to lower-right of the screen, i.e. `(dx, dy) = (1, -1)` in
+/// the y-axis-down convention used throughout the engine.
 #[derive(Copy, Clone, Debug)]
 pub enum Direction {
+    /// `(1, 0)` — left to right.
     Horizontal,
+    /// `(0, 1)` — top to bottom.
     Vertical,
+    /// `(1, 1)` — top-left to bottom-right.
     Diagonal,
+    /// `(1, -1)` — bottom-left to top-right.
     AntiDiagonal,
 }
 
 impl Direction {
+    /// The unit `(dx, dy)` step for this direction.
     pub fn delta(self) -> (isize, isize) {
         match self {
             Direction::Horizontal => (1, 0),
@@ -43,6 +91,10 @@ impl Direction {
         }
     }
 
+    /// All four direction deltas, in a fixed order.
+    ///
+    /// Used by win and capture checks that need to scan every line through
+    /// a given cell.
     pub fn all_directions() -> [(isize, isize); 4] {
         [
             Direction::Horizontal.delta(),   // (1, 0)
@@ -55,12 +107,15 @@ impl Direction {
 
 
 impl Player {
+    /// Index into `[BitBoard; 2]` arrays — Black is `0`, White is `1`.
     pub fn idx(self) -> usize {
         match self {
             Player::Black => 0,
             Player::White => 1,
         }
     }
+
+    /// The other player.
     pub fn opponent(self) -> Player {
         match self {
             Player::Black => Player::White,
@@ -69,12 +124,19 @@ impl Player {
     }
 }
 
+/// A single move in the game history.
+///
+/// `captured` records every opponent stone removed by this move so that
+/// [`Game::undo_move`] can put them back.
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct Move {
+    /// Column where the stone was placed.
     pub x: usize,
+    /// Row where the stone was placed.
     pub y: usize,
-    pub captured: Vec<(usize, usize)> // coordinates of stones captured
+    /// Coordinates of opponent stones captured by this move.
+    pub captured: Vec<(usize, usize)>,
 }
 
 impl std::fmt::Display for Move {
@@ -87,22 +149,36 @@ impl std::fmt::Display for Move {
     }
 }
 
+/// The complete state of a Gomoku game.
+///
+/// All public fields are mutated in place by [`Game::play_move`] and
+/// [`Game::undo_move`]; nothing is reference-counted or cloned. The search
+/// uses make/unmake against a single `Game` rather than copying.
 pub struct Game {
+    /// Stone placements.
     pub board: Board,
+    /// `Ongoing`, `Win(player)`, or `Draw`.
     pub status: GameStatus,
+    /// Played moves in order. Length determines whose move it is.
     pub history: Vec<Move>,
-    pub captures: (u8, u8), // (black, white)
+    /// Capture pair counts as `(black, white)`. Five pairs wins.
+    pub captures: (u8, u8),
 }
 
+/// Whether the game is still being played, has been won, or is drawn.
 #[allow(dead_code)]
 pub enum GameStatus {
+    /// More moves are legal.
     Ongoing,
+    /// `player` has won, either by five-in-a-row or by five capture pairs.
     Win(Player),
+    /// Board is full with no winner.
     Draw,
 }
 
 #[allow(dead_code)]
 impl Game {
+    /// Start a new game with an empty board, Black to move.
     pub fn new() -> Self {
         Self {
             board: Board::new(),
@@ -112,6 +188,9 @@ impl Game {
         }
     }
 
+    /// Whose move is the `move_index`-th move (zero-indexed).
+    ///
+    /// Even indices are Black, odd indices are White.
     pub fn player_at_move(&self, move_index: usize) -> Player {
         if move_index.is_multiple_of(2) {
             Player::Black
@@ -120,10 +199,23 @@ impl Game {
         }
     }
 
+    /// Whose turn it currently is. Derived from `history.len()`.
     pub fn current_player(&self) -> Player {
         self.player_at_move(self.history.len())
     }
 
+    /// Place the current player's stone at `(x, y)` and update the game state.
+    ///
+    /// Applies captures, checks for the double-three rule, and updates
+    /// [`Game::status`] if the move ends the game.
+    ///
+    /// # Errors
+    ///
+    /// - `"Out of bounds"` or `"Cell already occupied"` from the underlying
+    ///   [`Board::empty_check`].
+    /// - `"Game already finished"` when called after a win or draw.
+    /// - `"Double three is forbidden"` when the move would create two
+    ///   simultaneous free threes.
     pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
         self.board.empty_check(x, y)?;
         if !matches!(self.status, GameStatus::Ongoing) {
@@ -175,6 +267,12 @@ impl Game {
     }
 
 
+    /// Reverse the most recent move, restoring captured stones and capture
+    /// counts. Resets [`Game::status`] to [`GameStatus::Ongoing`].
+    ///
+    /// # Errors
+    ///
+    /// - `"No moves to undo"` if the history is empty.
     pub fn undo_move(&mut self) -> Result<(), String> {
 
         let last = self.history.pop().ok_or("No moves to undo")?;
@@ -198,6 +296,8 @@ impl Game {
         Ok(())
     }
 
+    /// Print the board (and optionally a header showing the move number
+    /// and the last move played). Used by [`crate::play!`] and tests.
     pub fn print_board(&self, print_turn: bool) {
         if print_turn {
             print!("\n-------\nTurn {:2}", self.history.len());
@@ -211,45 +311,48 @@ impl Game {
         self.board.print_board();
     }
 
-    fn count_direction(&self, x: usize, y: usize, dx: isize, dy: isize) -> u8 {
-        let player = self.board.cell_at(x, y);
-        // let player = self.board[y][x];
-        let mut count = 0;
-
-        let mut cx = x as isize;
-        let mut cy = y as isize;
-
-        loop {
-            cx += dx;
-            cy += dy;
-
-            if cx < 0 || cy < 0 || cx >= BOARD_SIZE_I || cy >= BOARD_SIZE_I {
-                break;
-            }
-
-            // if self.board[cy as usize][cx as usize] != player {
-            if self.board.cell_at(cx as usize, cy as usize) != player {
-                break;
-            }
-
-            count += 1;
-        }
-        count
-    }
-
+    /// Whether the stone at `(x, y)` participates in a 5+ run along any
+    /// of the four directions.
+    ///
+    /// Packs the 9-cell window centered on the stone into bitmasks and
+    /// hands the detection off to [`crate::patterns::count_patterns`].
+    /// Off-board cells fall outside the packed window, so the board edge
+    /// acts as a wall — same convention used by [`Game::is_free_three`].
     pub fn check_win(&self, x: usize, y: usize) -> bool {
-        for (dx, dy) in Direction::all_directions() {
-            let count = 1
-                + self.count_direction(x, y, dx, dy)
-                + self.count_direction(x, y, -dx, -dy);
+        let player = match self.board.cell_at(x, y) {
+            Some(p) => p,
+            None => return false,
+        };
 
-            if count >= 5 {
+        for (dx, dy) in Direction::all_directions() {
+            // Walk back up to 4 cells along (-dx, -dy) so a 5-run that
+            // ends at (x, y) still fits in the packed line.
+            let mut x0 = x as isize;
+            let mut y0 = y as isize;
+            for _ in 0..4 {
+                let nx = x0 - dx;
+                let ny = y0 - dy;
+                if !(0..BOARD_SIZE_I).contains(&nx) || !(0..BOARD_SIZE_I).contains(&ny) {
+                    break;
+                }
+                x0 = nx;
+                y0 = ny;
+            }
+
+            let (me, opp, len) = self.board.pack_line(x0, y0, dx, dy, 9, player);
+            if crate::patterns::count_patterns(me, opp, len).fives > 0 {
                 return true;
             }
         }
         false
     }
 
+    /// Resolve captures triggered by a stone just played at `(x, y)`.
+    ///
+    /// For each of the eight directions, if the pattern is
+    /// `played, opp, opp, played`, the two opponent stones are removed.
+    /// Returns the coordinates of the removed stones so the move can be
+    /// undone later.
     fn apply_captures(&mut self, x: usize, y: usize) -> Vec<(usize, usize)> {
         let mut captured = Vec::new();
         let player = self.current_player();
@@ -289,7 +392,9 @@ impl Game {
         captured
     }
 
-        fn count_free_threes(&self, x: usize, y: usize) -> u32 {
+    /// How many of the four directions show a free three through `(x, y)`.
+    /// Used to enforce the no-double-three rule.
+    fn count_free_threes(&self, x: usize, y: usize) -> u32 {
         let mut count = 0;
 
         for (dx, dy) in Direction::all_directions() {
@@ -301,69 +406,45 @@ impl Game {
         count
     }
 
+    /// Does the just-placed stone at `(x, y)` create a free-three along
+    /// `(dx, dy)`?
+    ///
+    /// Packs the 9-cell window centered on the stone into bitmasks and
+    /// hands the detection off to [`crate::patterns::has_free_three`].
+    /// Off-board cells are dropped from the window — they act as walls,
+    /// so a 6-cell pattern that requires an empty endpoint won't match
+    /// against the board edge.
     fn is_free_three(&self, x: usize, y: usize, dx: isize, dy: isize) -> bool {
-        let player = self.board.cell_at(x, y).unwrap();
+        let player = match self.board.cell_at(x, y) {
+            Some(p) => p,
+            None => return false,
+        };
 
-        let mut line: Vec<Cell> = Vec::new(); // Cell = Option<Player>
-
+        let mut me = 0u32;
+        let mut opp = 0u32;
+        let mut len = 0u32;
         for i in -4..=4 {
             let cx = x as isize + i * dx;
             let cy = y as isize + i * dy;
-
             if cx < 0 || cy < 0 || cx >= BOARD_SIZE_I || cy >= BOARD_SIZE_I {
                 continue;
-            } else {
-                line.push(self.board.cell_at(cx as usize, cy as usize));
             }
+            match self.board.cell_at(cx as usize, cy as usize) {
+                Some(p) if p == player => me |= 1 << len,
+                Some(_) => opp |= 1 << len,
+                None => {}
+            }
+            len += 1;
         }
 
-        if line.len() < 6 { return false; }
-        for i in 0..=line.len() - 6 {
-            if line[i].is_some() { continue; }
-
-            // scan for pattern: . X X X . .
-            if line[i + 1] == Some(player)
-                && line[i + 2] == Some(player)
-                && line[i + 3] == Some(player)
-                && line[i + 4].is_none()
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-
-            // scan for pattern: . . X X X .
-            if line[i + 1].is_none()
-                && line[i + 2] == Some(player)
-                && line[i + 3] == Some(player)
-                && line[i + 4] == Some(player)
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-
-            // scan for pattern: . X X . X .
-            if line[i + 1] == Some(player)
-                && line[i + 2] == Some(player)
-                && line[i + 3].is_none()
-                && line[i + 4] == Some(player)
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-
-            // scan for pattern: . X . X X .
-            if line[i + 1] == Some(player)
-                && line[i + 2].is_none()
-                && line[i + 3] == Some(player)
-                && line[i + 4] == Some(player)
-                && line[i + 5].is_none()
-            {
-                return true;
-            }
-        }
-        false
+        crate::patterns::has_free_three(me, opp, len)
     }
 
+    /// Whether the current player could legally play at `(x, y)` *right now*.
+    ///
+    /// Probes by temporarily placing the stone, counting the free threes
+    /// it creates, and undoing the placement. Used as the legality filter
+    /// in [`Game::generate_moves`].
     fn is_valid_move(&mut self, x: usize, y:usize) -> bool {
         if !self.board.is_empty(x, y) { return false; }
 
@@ -375,6 +456,12 @@ impl Game {
         valid
     }
 
+    /// Candidate moves the search should consider, in unspecified order.
+    ///
+    /// On the empty board, returns the single move `(9, 9)` to seed the
+    /// game at the center. Otherwise returns every empty cell within
+    /// [`MOVE_GEN_RADIUS`] of an existing stone that passes
+    /// [`Game::is_valid_move`] (i.e. doesn't create a double three).
     pub fn generate_moves(&mut self) -> Vec<(usize, usize)> {
         use std::collections::HashSet;
 
