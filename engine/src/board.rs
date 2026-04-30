@@ -1,20 +1,23 @@
 use crate::game::{Player, Cell};
 use crate::constants::BOARD_SIZE;
 
-const CELL_COUNT: usize = BOARD_SIZE * BOARD_SIZE;
-const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
+pub const CELL_COUNT: usize = BOARD_SIZE * BOARD_SIZE;
+pub const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 
 #[allow(dead_code)]
 const LAST_WORDS_BITS: usize = CELL_COUNT % 64;
 
+pub type Bits = [u64; WORD_COUNT];
+
+#[derive(Clone, Copy)]
 pub struct BitBoard {
-    words: [u64; 6],
+    words: [u64; WORD_COUNT],
 }
 
 impl BitBoard {
     pub fn new() -> Self {
         Self {
-            words: [0; 6]
+            words: [0; WORD_COUNT]
         }
     }
     fn set(&mut self, idx: usize) {
@@ -54,13 +57,91 @@ impl BitBoard {
         self.get(idx)
     }
 
-    fn or(&self, other: &Self) -> Self {
+    pub fn and(&self, other: &Self) -> Self {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] = self.words[i] & other.words[i];
+        }
+
+        out
+    }
+
+    pub fn or(&self, other: &Self) -> Self {
         let mut out = Self::new();
 
         for i in 0..WORD_COUNT {
             out.words[i] = self.words[i] | other.words[i];
         }
 
+        out
+    }
+
+    pub fn not(&self) -> Self {
+        let mut out = Self::new();
+        for i in 0..WORD_COUNT {
+            out.words[i] = !self.words[i];
+        }
+        //mask the junk at the tip
+        let last_bits = CELL_COUNT - (64 * (WORD_COUNT - 1)); //41
+        let mask = (1u64 << last_bits) - 1;
+
+        out.words[WORD_COUNT - 1] &= mask;
+        out
+    }
+
+    //returns the number of 1s
+    pub fn popcount(&self) -> u32 {
+        self.words.iter().map(|x| x.count_ones()).sum()
+    }
+
+    pub fn shr(&self, shift: usize) -> Self {
+        if shift == 0 {
+            return *self;
+        }
+        let w = shift / 64;
+        let b = shift % 64;
+
+        let mut out = BitBoard::new();
+
+        for dst in 0..WORD_COUNT {
+            let src = dst + w;
+
+            if src >= WORD_COUNT {
+                break;
+            }
+
+            out.words[dst] |= self.words[src] >> b;
+
+            if b != 0 && src + 1 < WORD_COUNT {
+                out.words[dst] |= self.words[src + 1] << (64 - b);
+            }
+        }
+        out
+    }
+
+    pub fn shl(&self, shift: usize) -> Self {
+        if shift == 0 {
+            return *self;
+        }
+        let w = shift / 64;
+        let b = shift % 64;
+
+        let mut out = BitBoard::new();
+
+        for src in 0..WORD_COUNT {
+            let dst = src + w;
+
+            if dst >= WORD_COUNT {
+                break;
+            }
+
+            out.words[dst] |= self.words[src] << b;
+
+            if b != 0 && dst + 1 < WORD_COUNT {
+                out.words[dst + 1] |= self.words[src] >> (64 - b);
+            }
+        }
         out
     }
 }
@@ -74,6 +155,10 @@ impl Board {
         Self {
             boards: [BitBoard::new(), BitBoard::new()]
         }
+    }
+
+    pub fn bits(&self, player: Player) -> &BitBoard {
+        &self.boards[player.idx()]
     }
 
     pub fn place_stone(&mut self, x: usize, y: usize, player: Player) {
