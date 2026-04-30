@@ -1,0 +1,9 @@
+(function() {
+    const implementors = Object.fromEntries([["engine",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"enum\" href=\"engine/game/enum.Direction.html\" title=\"enum engine::game::Direction\">Direction</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"enum\" href=\"engine/game/enum.Player.html\" title=\"enum engine::game::Player\">Player</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"engine/ai/search/struct.SearchNode.html\" title=\"struct engine::ai::search::SearchNode\">SearchNode</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"engine/ai/search/struct.SearchResult.html\" title=\"struct engine::ai::search::SearchResult\">SearchResult</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"engine/game/struct.Move.html\" title=\"struct engine::game::Move\">Move</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/clone/trait.Clone.html\" title=\"trait core::clone::Clone\">Clone</a> for <a class=\"struct\" href=\"engine/patterns/struct.PatternCounts.html\" title=\"struct engine::patterns::PatternCounts\">PatternCounts</a>",0]]]]);
+    if (window.register_implementors) {
+        window.register_implementors(implementors);
+    } else {
+        window.pending_implementors = implementors;
+    }
+})()
+//{"start":59,"fragment_lengths":[1632]}

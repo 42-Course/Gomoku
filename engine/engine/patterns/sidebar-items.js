@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["count_patterns","has_free_three","line_mask","run_starts"],"struct":["PatternCounts"]};

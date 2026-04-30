@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["WIN_SCORE"],"fn":["best_move","best_move_verbose","negamax","terminal_score"],"struct":["NoopObserver","SearchNode","SearchResult","TreeObserver"],"trait":["Observer"]};

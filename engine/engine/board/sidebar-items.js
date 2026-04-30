@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CELL_COUNT","WORD_COUNT"],"struct":["BitBoard","Board"]};

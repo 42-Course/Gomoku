@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CAPTURE_PAIR","CLOSED_FOUR","CLOSED_THREE","CLOSED_TWO","FIVE_FALLBACK","OPEN_FOUR","OPEN_THREE","OPEN_TWO","WIN_SCORE"],"fn":["capture_diff","evaluate","score_from_counts","score_player"]};

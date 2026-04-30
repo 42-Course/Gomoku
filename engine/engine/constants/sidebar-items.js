@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["BOARD_SIZE","BOARD_SIZE_I"]};
