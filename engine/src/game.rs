@@ -195,14 +195,15 @@ impl Pos {
     #[allow(dead_code)]
     #[inline]
     pub fn to_xy(self) -> (usize, usize) {
-        (self.0 % 19, self.0 / 19)
+        (self.0 % BOARD_SIZE, self.0 / BOARD_SIZE)
     }
 }
 
 #[allow(dead_code)]
 impl Game {
     /// Start a new game with an empty board, Black to move.
-    ///     /// Initializes:
+    ///
+    /// Initializes:
     /// - capture counts to 0–0
     /// - side-to-move to Black
     /// - Zobrist hash consistent with the initial state
@@ -301,7 +302,7 @@ impl Game {
             return Err("Double three is forbidden");
         }
 
-        // hash when the move is conrfirmed
+        // hash when the move is confirmed
         self.hash_place(pos, player);
         self.hash_side(player);
         self.hash_side(player.opponent());

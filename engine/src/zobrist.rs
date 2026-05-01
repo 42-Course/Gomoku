@@ -12,12 +12,16 @@
 //!   of the hash in O(1) time.
 //!
 //! This is essential for efficient search (e.g. transposition tables),
-//! where many positions are revisited.use crate::constants::{ CELL_COUNT };
+//! where many positions are revisited.
 
 use crate::constants::CELL_COUNT;
 use once_cell::sync::Lazy;
 
-const MAX_CAPTURES: usize = 5;
+// Upper bound on captures.0 / captures.1 the hash needs to index. The game
+// is won at 5 capture pairs, but `play_move` updates the hash *before* the
+// win check, and a single move can capture up to 8 pairs (one per direction
+// × both sides). 4 + 8 = 12 is the worst case we must accommodate.
+const MAX_CAPTURES: usize = 12;
 const ZOBRIST_SEED: u64 = 0x9E3779B97F4A7C15;
 
 const MIX_MULT: u64 = 0x2545F4914F6CDD1D;
