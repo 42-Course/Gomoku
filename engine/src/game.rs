@@ -24,6 +24,7 @@
 use crate::constants::BOARD_SIZE;
 use crate::constants::BOARD_SIZE_I;
 use crate::board::Board;
+use crate::zobrist::ZOBRIST;
 
 /// Chebyshev radius used by [`Game::generate_moves`] to grow candidate
 /// moves out from existing stones. `1` means "the 8 neighbours".
@@ -163,6 +164,8 @@ pub struct Game {
     pub history: Vec<Move>,
     /// Capture pair counts as `(black, white)`. Five pairs wins.
     pub captures: (u8, u8),
+    /// Zobrist hash of the current game state (board, captures, side-to-move), updated incrementally for fast position lookup in search.
+    hash: u64,
 }
 
 /// Whether the game is still being played, has been won, or is drawn.
@@ -176,16 +179,73 @@ pub enum GameStatus {
     Draw,
 }
 
+/// Compact board position as a linear index (y * 19 + x).
+/// Used for fast indexing and hashing without passing (x, y) pairs.
+#[derive(Copy, Clone)]
+pub struct Pos(pub usize);
+
+impl Pos {
+    /// Returns the underlying index.
+    #[inline]
+    pub fn idx(self) -> usize {
+        self.0
+    }
+
+    /// Converts the index to (x, y).
+    #[allow(dead_code)]
+    #[inline]
+    pub fn to_xy(self) -> (usize, usize) {
+        (self.0 % 19, self.0 / 19)
+    }
+}
+
 #[allow(dead_code)]
 impl Game {
     /// Start a new game with an empty board, Black to move.
+    ///     /// Initializes:
+    /// - capture counts to 0–0
+    /// - side-to-move to Black
+    /// - Zobrist hash consistent with the initial state
     pub fn new() -> Self {
+        let mut hash = 0u64;
+
+        // captures start at 0–0
+        hash ^= ZOBRIST.capture[Player::Black.idx()][0];
+        hash ^= ZOBRIST.capture[Player::White.idx()][0];
+
+        // Black to move
+        hash ^= ZOBRIST.side[Player::Black.idx()];
         Self {
             board: Board::new(),
             status: GameStatus::Ongoing,
             history: Vec::new(), // The index of the history represents the move number, starting from 0 (player)
             captures: (0, 0),
+            hash
         }
+    }
+
+    /// Toggles hash for placing/removing a stone at `pos` for `player`.
+    #[inline]
+    fn hash_place(&mut self, pos: Pos, player: Player) {
+        self.hash ^= ZOBRIST.board[pos.idx()][player as usize];
+    }
+
+    /// Same as `hash_place` (XOR is symmetric).
+    #[inline]
+    fn hash_remove(&mut self, pos: Pos, player: Player) {
+        self.hash ^= ZOBRIST.board[pos.idx()][player as usize];
+    }
+
+    /// Toggles hash for a given capture count of `player`.
+    #[inline]
+    fn hash_capture(&mut self, player: Player, capture: u8) {
+        self.hash ^= ZOBRIST.capture[player as usize][capture as usize];
+    }
+
+    /// Toggles side-to-move in the hash.
+    #[inline]
+    fn hash_side(&mut self, player: Player) {
+        self.hash ^= ZOBRIST.side[player as usize];
     }
 
     /// Whose move is the `move_index`-th move (zero-indexed).
@@ -209,6 +269,16 @@ impl Game {
     /// Applies captures, checks for the double-three rule, and updates
     /// [`Game::status`] if the move ends the game.
     ///
+    /// # Hashing
+    ///
+    /// This function updates the Zobrist hash incrementally:
+    /// - stone placement
+    /// - captured stones removal
+    /// - capture count changes
+    /// - side-to-move switch
+    ///
+    /// The order of these updates must be mirrored exactly in [`Game::undo_move`].
+    ///
     /// # Errors
     ///
     /// - `"Out of bounds"` or `"Cell already occupied"` from the underlying
@@ -221,8 +291,9 @@ impl Game {
         if !matches!(self.status, GameStatus::Ongoing) {
             return Err("Game already finished");
         }
-
+        let pos = Pos(y * BOARD_SIZE + x);
         let player = self.current_player();
+
         self.board.place_stone(x, y, player);
 
         if self.count_free_threes(x, y) >= 2 {
@@ -230,14 +301,34 @@ impl Game {
             return Err("Double three is forbidden");
         }
 
+        // hash when the move is conrfirmed
+        self.hash_place(pos, player);
+        self.hash_side(player);
+        self.hash_side(player.opponent());
+
         // apply captures
         let captured = self.apply_captures(x, y);
+
+        for &(cx, cy) in &captured {
+            let pos = Pos(cy * BOARD_SIZE + cx);
+            self.hash_remove(pos, player.opponent());
+        }
 
         // update capture count
         let captured_pairs = captured.len() / 2;
         match player {
-            Player::Black => self.captures.0 += captured_pairs as u8,
-            Player::White => self.captures.1 += captured_pairs as u8,
+            Player::Black => {
+                // hash the previous count out, and the new one in
+                self.hash_capture(player, self.captures.0);
+                self.captures.0 += captured_pairs as u8;
+                self.hash_capture(player, self.captures.0);
+            },
+            Player::White => {
+                // hash the previous count out, and the new one in
+                self.hash_capture(player, self.captures.1);
+                self.captures.1 += captured_pairs as u8;
+                self.hash_capture(player, self.captures.1);
+            },
         }
 
         self.history.push(Move {
@@ -270,6 +361,15 @@ impl Game {
     /// Reverse the most recent move, restoring captured stones and capture
     /// counts. Resets [`Game::status`] to [`GameStatus::Ongoing`].
     ///
+    /// # Hashing
+    ///
+    /// This function is the exact inverse of [`Game::play_move`].
+    /// All Zobrist hash updates are reverted in reverse order, ensuring:
+    ///
+    /// ```text
+    /// play_move → undo_move ⇒ identical hash and state
+    /// ```
+    ///
     /// # Errors
     ///
     /// - `"No moves to undo"` if the history is empty.
@@ -278,17 +378,36 @@ impl Game {
         let last = self.history.pop().ok_or("No moves to undo")?;
         let last_player = self.current_player();
         let last_opponent = self.current_player().opponent();
+
+        let pos = Pos(last.y * BOARD_SIZE + last.x);
         self.board.remove_stone(last.x, last.y, last_player);
 
-        for (cx, cy) in &last.captured {
-            self.board.place_stone(*cx, *cy, last_opponent);
+        // undo hash
+        self.hash_remove(pos, last_player);
+        self.hash_side(last_opponent);
+        self.hash_side(last_player);
+
+        for &(cx, cy) in &last.captured {
+            self.board.place_stone(cx, cy, last_opponent);
+            let pos = Pos(cy * BOARD_SIZE + cx);
+            self.hash_place(pos, last_opponent);
         }
 
         let pairs = last.captured.len() / 2;
 
         match last_player {
-            Player::Black => self.captures.0 -= pairs as u8,
-            Player::White => self.captures.1 -= pairs as u8,
+            Player::Black => {
+                // hash the previous count out, and the new one in
+                self.hash_capture(last_player, self.captures.0);
+                self.captures.0 -= pairs as u8;
+                self.hash_capture(last_player, self.captures.0);
+            },
+            Player::White => {
+                // hash the previous count out, and the new one in
+                self.hash_capture(last_player, self.captures.1);
+                self.captures.1 -= pairs as u8;
+                self.hash_capture(last_player, self.captures.1);
+            },
         }
 
         self.status = GameStatus::Ongoing;
@@ -701,4 +820,74 @@ fn test_undo_capture() {
     // stones should be restored
     assert_eq!(game.board.cell_at(1, 0), Some(Player::White));
     assert_eq!(game.board.cell_at(2, 0), Some(Player::White));
+}
+
+#[test]
+fn test_undo_simple_move_hash() {
+    let mut game = Game::new();
+
+    let h = game.hash;
+
+    play!(game, 9, 9).unwrap();
+    game.undo_move().unwrap();
+
+    assert_eq!(game.hash, h);
+    assert_eq!(game.board.cell_at(9, 9), None);
+    assert_eq!(game.history.len(), 0);
+}
+
+#[test]
+fn test_undo_capture_hash() {
+    let mut game = Game::new();
+
+    play!(game, 0, 0).unwrap(); // X
+    play!(game, 1, 0).unwrap(); // O
+    play!(game, 4, 0).unwrap(); // X
+    play!(game, 2, 0).unwrap(); // O
+
+    let h = game.hash;
+
+    play!(game, 3, 0).unwrap(); // X capture
+    game.undo_move().unwrap();
+
+    assert_eq!(game.hash, h);
+
+    // stones restored
+    assert_eq!(game.board.cell_at(1, 0), Some(Player::White));
+    assert_eq!(game.board.cell_at(2, 0), Some(Player::White));
+}
+
+#[test]
+fn test_undo_sequence_hash_stepwise() {
+    let mut game = Game::new();
+
+    let mut hashes = Vec::new();
+
+    let moves = [(9, 9), (10, 9), (9, 10), (10, 10)];
+
+    // store hash BEFORE each move
+    for &(x, y) in &moves {
+        let prev = game.hash;
+        hashes.push(prev);
+
+        play!(game, x, y).unwrap();
+
+        // ensure hash actually changed
+        assert_ne!(game.hash, prev);
+    }
+
+    // undo and compare step-by-step
+    for expected_hash in hashes.iter().rev() {
+        let before_undo = game.hash;
+
+        game.undo_move().unwrap();
+
+        // ensure undo also changes hash
+        assert_ne!(game.hash, before_undo);
+
+        // ensure correctness
+        assert_eq!(game.hash, *expected_hash);
+    }
+
+    assert_eq!(game.history.len(), 0);
 }

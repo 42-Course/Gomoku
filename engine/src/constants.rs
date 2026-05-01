@@ -18,3 +18,6 @@ pub const BOARD_SIZE: usize = 19;
 /// Use this in line walks where coordinates may transiently be negative
 /// (e.g. stepping `(x - 1, y - 1)` along a diagonal).
 pub const BOARD_SIZE_I: isize = 19;
+
+/// Total number of cells on the board (`BOARD_SIZE * BOARD_SIZE`).
+pub const CELL_COUNT: usize = BOARD_SIZE * BOARD_SIZE;

@@ -13,13 +13,8 @@
 //! masks, which makes them walls - see the [`crate::patterns`] module for
 //! how that interacts with pattern recognition.
 
-use crate::constants::{BOARD_SIZE, BOARD_SIZE_I};
+use crate::constants::{BOARD_SIZE, BOARD_SIZE_I, CELL_COUNT};
 use crate::game::{Cell, Player};
-
-/// Total number of cells on the board (`BOARD_SIZE * BOARD_SIZE`).
-const CELL_COUNT: usize = BOARD_SIZE * BOARD_SIZE;
-
-/// How many `u64` words are needed to hold one bit per cell.
 const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 
 /// One player's stones, stored as a bitmap with one bit per cell.

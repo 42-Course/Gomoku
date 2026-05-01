@@ -37,6 +37,7 @@
 //! from the side-to-move's perspective using the pattern tallies above.
 
 mod ai;
+mod zobrist;
 mod board;
 mod constants;
 mod game;
