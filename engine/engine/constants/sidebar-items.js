@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["BOARD_SIZE","BOARD_SIZE_I"]};
+window.SIDEBAR_ITEMS = {"constant":["BOARD_SIZE","BOARD_SIZE_I","CELL_COUNT"]};

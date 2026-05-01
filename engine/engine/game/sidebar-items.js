@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["MOVE_GEN_RADIUS"],"enum":["Direction","GameStatus","Player"],"struct":["Game","Move"],"type":["Cell"]};
+window.SIDEBAR_ITEMS = {"constant":["MOVE_GEN_RADIUS"],"enum":["Direction","GameStatus","Player"],"struct":["Game","Move","Pos"],"type":["Cell"]};

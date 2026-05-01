@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_CAPTURES","MIX_MULT","SHIFT1","SHIFT2","SHIFT3","ZOBRIST_SEED"],"fn":["rand_u64"],"static":["ZOBRIST"],"struct":["Zobrist"]};
