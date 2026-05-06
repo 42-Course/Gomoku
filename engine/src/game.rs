@@ -631,6 +631,7 @@ impl Game {
                 moves.push((x, y));
             }
         }
+        moves.sort_unstable();
         moves
     }
 }
