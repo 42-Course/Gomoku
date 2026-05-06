@@ -155,6 +155,7 @@ impl std::fmt::Display for Move {
 /// All public fields are mutated in place by [`Game::play_move`] and
 /// [`Game::undo_move`]; nothing is reference-counted or cloned. The search
 /// uses make/unmake against a single `Game` rather than copying.
+#[derive(Clone)]
 pub struct Game {
     /// Stone placements.
     pub board: Board,
@@ -165,11 +166,12 @@ pub struct Game {
     /// Capture pair counts as `(black, white)`. Five pairs wins.
     pub captures: (u8, u8),
     /// Zobrist hash of the current game state (board, captures, side-to-move), updated incrementally for fast position lookup in search.
-    hash: u64,
+    pub hash: u64,
 }
 
 /// Whether the game is still being played, has been won, or is drawn.
 #[allow(dead_code)]
+#[derive(Clone)]
 pub enum GameStatus {
     /// More moves are legal.
     Ongoing,

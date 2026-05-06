@@ -30,6 +30,7 @@
 
 use crate::ai::eval::evaluate;
 use crate::game::{Game, GameStatus, Player};
+use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
 /// Score returned for a decisive terminal position. Large enough to dominate
 /// any heuristic evaluation, small enough that `score + depth` can't overflow.
@@ -180,21 +181,32 @@ fn terminal_score(game: &Game, depth: u32) -> Option<i32> {
     }
 }
 
-/// Negamax with alpha-beta. Returns `(score, best_move_at_this_node)`.
+/// Negamax with alpha-beta pruning and transposition table support.
 ///
-/// `incoming_mv` is the move that led to this node, used only by the
-/// observer. It's `None` at the root.
+/// The transposition table stores previously searched positions keyed by
+/// Zobrist hash. Entries may contain:
 ///
-/// # Panics
+/// - [`Bound::Exact`] — exact minimax score for this position
+/// - [`Bound::Lower`] — lower bound (fail-high / beta cutoff)
+/// - [`Bound::Upper`] — upper bound (fail-low)
 ///
-/// Panics if [`Game::undo_move`] fails after a successful
-/// [`Game::play_move`]; that combination should be impossible and
-/// indicates a bug elsewhere.
+/// TT entries are reused to:
+///
+/// - return exact evaluations immediately
+/// - tighten the alpha-beta search window
+/// - improve move ordering by searching the previous best move first
+///
+/// Only entries searched to at least the current depth are trusted for
+/// pruning and ordering.
+///
+/// Returns `(score, best_move_at_this_node)`.
+#[allow(clippy::too_many_arguments)]
 fn negamax<O: Observer>(
     game: &mut Game,
     depth: u32,
     mut alpha: i32,
-    beta: i32,
+    mut beta: i32,
+    tt: &mut TranspositionTable,
     observer: &mut O,
     incoming_mv: Option<(usize, usize)>,
     nodes: &mut u64,
@@ -202,6 +214,36 @@ fn negamax<O: Observer>(
     *nodes += 1;
     let player = game.current_player();
     observer.enter(incoming_mv, player, depth, alpha, beta);
+
+    // Look in the transposition table, if the board has been generated
+    let original_alpha = alpha;
+    let original_beta = beta;
+    // Probe TT before searching children. Exact scores may terminate the
+    // search immediately; lower/upper bounds may tighten the search window.
+    let tt_entry = tt.get(game.hash);
+    if let Some(entry) = tt_entry {
+        if entry.depth >= depth as i32 {
+            match entry.flag {
+                Bound::Exact => {
+                    return (entry.score, entry.best_move);
+                }
+                Bound::Lower => {
+                    alpha = alpha.max(entry.score);
+                }
+                Bound::Upper => {
+                    beta = beta.min(entry.score);
+                    if alpha >= beta {
+                        observer.leave(entry.score, true);
+                        return (entry.score, entry.best_move);
+                    }
+                }
+            }
+            if alpha >= beta {
+                observer.leave(entry.score, true);
+                return (entry.score, entry.best_move);
+            }
+        }
+    }
 
     if let Some(score) = terminal_score(game, depth) {
         observer.leave(score, false);
@@ -214,13 +256,25 @@ fn negamax<O: Observer>(
         return (score, None);
     }
 
-    let moves = game.generate_moves();
+    let mut moves = game.generate_moves();
+
     if moves.is_empty() {
         // No legal continuations but game isn't flagged terminal — treat as
         // a quiet position and hand off to the evaluator.
         let score = evaluate(game);
         observer.leave(score, false);
         return (score, None);
+    }
+
+    if let Some(entry) = tt_entry {
+        if entry.depth >= depth as i32 {
+            if let Some(tt_mv) = entry.best_move {
+                if let Some(pos) = moves.iter().position(|&m| m == tt_mv) {
+                    // Search the previous best move first to maximize alpha-beta cutoffs.
+                    moves.swap(0, pos);
+                }
+            }
+        }
     }
 
     let mut best_score = i32::MIN + 1;
@@ -235,7 +289,7 @@ fn negamax<O: Observer>(
         }
 
         let (child_score, _) =
-            negamax(game, depth - 1, -beta, -alpha, observer, Some((x, y)), nodes);
+            negamax(game, depth - 1, -beta, -alpha, tt, observer, Some((x, y)), nodes);
         let score = -child_score;
 
         game.undo_move().expect("undo_move must succeed after a successful play_move");
@@ -253,6 +307,23 @@ fn negamax<O: Observer>(
         }
     }
 
+    // Classify the stored result relative to the original search window.
+    let flag = if best_score <= original_alpha {
+        Bound::Upper
+    } else if best_score >= original_beta {
+        Bound::Lower
+    } else {
+        Bound::Exact
+    };
+
+    tt.insert(game.hash, TTEntry {
+        key: game.hash,
+        depth: depth as i32,
+        score: best_score,
+        flag,
+        best_move: best_mv,
+    });
+
     observer.leave(best_score, pruned);
     (best_score, best_mv)
 }
@@ -268,7 +339,7 @@ fn negamax<O: Observer>(
 /// let result = best_move(&mut game, 4);
 /// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
 /// ```
-pub fn best_move(game: &mut Game, depth: u32) -> SearchResult {
+pub fn best_move(game: &mut Game, depth: u32, tt: &mut TranspositionTable) -> SearchResult {
     let mut obs = NoopObserver;
     let mut nodes = 0u64;
     let (score, mv) = negamax(
@@ -276,6 +347,7 @@ pub fn best_move(game: &mut Game, depth: u32) -> SearchResult {
         depth,
         i32::MIN + 1,
         i32::MAX - 1,
+        tt,
         &mut obs,
         None,
         &mut nodes,
@@ -290,6 +362,7 @@ pub fn best_move(game: &mut Game, depth: u32) -> SearchResult {
 pub fn best_move_verbose(
     game: &mut Game,
     depth: u32,
+    tt: &mut TranspositionTable
 ) -> (SearchResult, Option<SearchNode>) {
     let mut obs = TreeObserver::new();
     let mut nodes = 0u64;
@@ -298,6 +371,7 @@ pub fn best_move_verbose(
         depth,
         i32::MIN + 1,
         i32::MAX - 1,
+        tt,
         &mut obs,
         None,
         &mut nodes,
@@ -314,7 +388,8 @@ mod tests {
     #[test]
     fn depth_zero_returns_eval_and_no_move() {
         let mut game = Game::new();
-        let result = best_move(&mut game, 0);
+        let mut tt = TranspositionTable::new(0);
+        let result = best_move(&mut game, 0, &mut tt);
         assert_eq!(result.best_move, None);
         assert_eq!(result.nodes_visited, 1);
     }
@@ -322,7 +397,8 @@ mod tests {
     #[test]
     fn returns_a_legal_move_on_empty_board() {
         let mut game = Game::new();
-        let result = best_move(&mut game, 1);
+        let mut tt = TranspositionTable::new(0);
+        let result = best_move(&mut game, 1, &mut tt);
         // On an empty board generate_moves yields exactly (9, 9).
         assert_eq!(result.best_move, Some((9, 9)));
     }
@@ -334,7 +410,8 @@ mod tests {
         game.play_move(10, 9).unwrap();
         let history_before = game.history.len();
 
-        let _ = best_move(&mut game, 2);
+        let mut tt = TranspositionTable::new(0);
+        let _ = best_move(&mut game, 2, &mut tt);
 
         assert_eq!(game.history.len(), history_before);
         assert_eq!(game.board.cell_at(9, 9), Some(Player::Black));
@@ -344,7 +421,7 @@ mod tests {
     #[test]
     fn blocks_an_immediate_win() {
         // Black has four stones in a row against the left edge: cols 0..=3 on
-        // row 9. The only way Black can extend to five is at (4, 9). If White
+        // row 9. The only way Black can extend to five is at (5, 9). If White
         // doesn't take it, Black wins on the next ply. White is on move.
         let mut game = Game::new();
         game.play_move(0, 9).unwrap();    // B
@@ -356,7 +433,8 @@ mod tests {
         game.play_move(3, 9).unwrap();    // B
         // White to move.
 
-        let result = best_move(&mut game, 2);
+        let mut tt = TranspositionTable::new(0);
+        let result = best_move(&mut game, 2, &mut tt);
         assert_eq!(
             result.best_move,
             Some((4, 9)),
@@ -369,12 +447,86 @@ mod tests {
         let mut game = Game::new();
         game.play_move(9, 9).unwrap();
 
-        let (result, tree) = best_move_verbose(&mut game, 2);
+        let mut tt = TranspositionTable::new(0);
+        let (result, tree) = best_move_verbose(&mut game, 2, &mut tt);
         let root = tree.expect("verbose mode should produce a root node");
 
         assert_eq!(root.depth_remaining, 2);
         assert_eq!(root.mv, None);
         assert_eq!(root.score, result.score);
         assert!(!root.children.is_empty());
+    }
+
+    #[test]
+    fn tt_does_not_change_best_move() {
+        let mut g1 = Game::new();
+        let mut g2 = g1.clone();
+
+        let mut tt_empty = TranspositionTable::new(0);
+        let mut tt = TranspositionTable::new(20);
+
+        let r1 = best_move(&mut g1, 4, &mut tt_empty); // no TT version
+        let r2 = best_move(&mut g2, 4, &mut tt);
+
+        assert_eq!(r1.best_move, r2.best_move);
+        assert_eq!(r1.score, r2.score);
+    }
+
+    #[test]
+    fn tt_reduces_node_count() {
+        let mut g1 = Game::new();
+        let mut g2 = g1.clone();
+
+        let mut tt_empty = TranspositionTable::new(0);
+        let mut tt = TranspositionTable::new(20);
+
+        let r1 = best_move(&mut g1, 6, &mut tt_empty);
+        let r2 = best_move(&mut g2, 6, &mut tt);
+
+        println!("no TT nodes: {}", r1.nodes_visited);
+        println!("TT nodes: {}", r2.nodes_visited);
+
+        assert!(r2.nodes_visited < r1.nodes_visited);
+    }
+
+    fn midgame_position() -> Game {
+        let mut g = Game::new();
+
+        let moves = [
+            (9, 9), (10, 9),
+            (9, 10), (10, 10),
+            (8, 9), (11, 9),
+            (8, 10), (11, 10),
+            (9, 8), (10, 8),
+        ];
+
+        for (x, y) in moves {
+            g.play_move(x, y).unwrap();
+        }
+
+        g
+    }
+
+    #[test]
+    fn tt_reduces_node_count_midgame() {
+        let mut g1 = midgame_position();
+        let mut g2 = g1.clone();
+
+        let mut tt_empty = TranspositionTable::new(0);
+        let mut tt = TranspositionTable::new(20);
+
+        let r1 = best_move(&mut g1, 4, &mut tt_empty);
+        let r2 = best_move(&mut g2, 4, &mut tt);
+
+        println!("no TT best move: {}, {}", r1.best_move.unwrap().0, r1.best_move.unwrap().1);
+        println!("TT best move: {}, {}", r2.best_move.unwrap().0, r2.best_move.unwrap().1);
+
+        assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
+        assert_eq!(r1.score, r2.score, "score differs with TT");
+
+        println!("no TT nodes: {}", r1.nodes_visited);
+        println!("TT nodes: {}", r2.nodes_visited);
+
+        assert!(r2.nodes_visited < r1.nodes_visited);
     }
 }

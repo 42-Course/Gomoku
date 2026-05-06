@@ -22,6 +22,7 @@ const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 /// Cells are flattened in row-major order: bit `y * BOARD_SIZE + x` is set
 /// when that cell holds a stone. Six `u64` words is enough for 19×19 = 361
 /// cells with room to spare.
+#[derive(Clone)]
 pub struct BitBoard {
     words: [u64; WORD_COUNT],
 }
@@ -90,6 +91,7 @@ impl BitBoard {
 /// The full game board: one [`BitBoard`] per player.
 ///
 /// Indexed `boards[player.idx()]`; black is index 0 and white is index 1.
+#[derive(Clone)]
 pub struct Board {
     boards: [BitBoard; 2],
 }
