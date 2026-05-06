@@ -377,4 +377,64 @@ mod tests {
         assert_eq!(root.score, result.score);
         assert!(!root.children.is_empty());
     }
+
+    fn assert_deterministic(game: &Game, depth: u32) {
+        let mut g1 = game.clone();
+        let mut g2 = game.clone();
+
+        let r1 = best_move(&mut g1, depth);
+        let r2 = best_move(&mut g2, depth);
+
+        assert_eq!(r1.best_move, r2.best_move, "best move differs");
+        assert_eq!(r1.score, r2.score, "score differs");
+        assert_eq!(
+            r1.nodes_visited,
+            r2.nodes_visited,
+            "node count differs"
+        );
+    }
+
+    #[test]
+    fn deterministic_two_moves() {
+        let mut game = Game::new();
+
+        game.play_move(9, 9).unwrap();
+        game.play_move(10, 9).unwrap();
+
+        assert_deterministic(&game, 3);
+    }
+
+    #[test]
+    fn deterministic_block_position() {
+        let mut game = Game::new();
+
+        game.play_move(0, 9).unwrap();
+        game.play_move(0, 0).unwrap();
+        game.play_move(1, 9).unwrap();
+        game.play_move(0, 1).unwrap();
+        game.play_move(2, 9).unwrap();
+        game.play_move(0, 2).unwrap();
+        game.play_move(3, 9).unwrap();
+
+        assert_deterministic(&game, 3);
+    }
+
+    #[test]
+    fn deterministic_midgame() {
+        let mut game = Game::new();
+
+        let moves = [
+            (9, 9), (10, 9),
+            (9, 10), (10, 10),
+            (8, 9), (11, 9),
+            (8, 10), (11, 10),
+            (9, 8), (10, 8),
+        ];
+
+        for (x, y) in moves {
+            game.play_move(x, y).unwrap();
+        }
+
+        assert_deterministic(&game, 4);
+    }
 }
