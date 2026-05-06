@@ -38,6 +38,7 @@
 
 mod ai;
 mod zobrist;
+mod transpose;
 mod board;
 mod constants;
 mod game;

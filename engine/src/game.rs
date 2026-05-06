@@ -166,7 +166,7 @@ pub struct Game {
     /// Capture pair counts as `(black, white)`. Five pairs wins.
     pub captures: (u8, u8),
     /// Zobrist hash of the current game state (board, captures, side-to-move), updated incrementally for fast position lookup in search.
-    hash: u64,
+    pub hash: u64,
 }
 
 /// Whether the game is still being played, has been won, or is drawn.
