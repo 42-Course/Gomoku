@@ -281,10 +281,10 @@ fn negamax<O: Observer>(
     let mut best_mv: Option<(usize, usize)> = None;
     let mut pruned = false;
 
-    for (x, y) in moves {
+    for move in moves {
         // generate_moves already filters illegal placements, but play_move
         // is still the source of truth — skip defensively if it rejects.
-        if game.play_move(x, y).is_err() {
+        if game.play_pos(move).is_err() {
             continue;
         }
 
