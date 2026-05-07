@@ -377,5 +377,65 @@
 <a href=#377 id=377 data-nosnippet>377</a>        <span class="macro">assert_eq!</span>(root.score, result.score);
 <a href=#378 id=378 data-nosnippet>378</a>        <span class="macro">assert!</span>(!root.children.is_empty());
 <a href=#379 id=379 data-nosnippet>379</a>    }
-<a href=#380 id=380 data-nosnippet>380</a>}
+<a href=#380 id=380 data-nosnippet>380</a>
+<a href=#381 id=381 data-nosnippet>381</a>    <span class="kw">fn </span>assert_deterministic(game: <span class="kw-2">&amp;</span>Game, depth: u32) {
+<a href=#382 id=382 data-nosnippet>382</a>        <span class="kw">let </span><span class="kw-2">mut </span>g1 = game.clone();
+<a href=#383 id=383 data-nosnippet>383</a>        <span class="kw">let </span><span class="kw-2">mut </span>g2 = game.clone();
+<a href=#384 id=384 data-nosnippet>384</a>
+<a href=#385 id=385 data-nosnippet>385</a>        <span class="kw">let </span>r1 = best_move(<span class="kw-2">&amp;mut </span>g1, depth);
+<a href=#386 id=386 data-nosnippet>386</a>        <span class="kw">let </span>r2 = best_move(<span class="kw-2">&amp;mut </span>g2, depth);
+<a href=#387 id=387 data-nosnippet>387</a>
+<a href=#388 id=388 data-nosnippet>388</a>        <span class="macro">assert_eq!</span>(r1.best_move, r2.best_move, <span class="string">"best move differs"</span>);
+<a href=#389 id=389 data-nosnippet>389</a>        <span class="macro">assert_eq!</span>(r1.score, r2.score, <span class="string">"score differs"</span>);
+<a href=#390 id=390 data-nosnippet>390</a>        <span class="macro">assert_eq!</span>(
+<a href=#391 id=391 data-nosnippet>391</a>            r1.nodes_visited,
+<a href=#392 id=392 data-nosnippet>392</a>            r2.nodes_visited,
+<a href=#393 id=393 data-nosnippet>393</a>            <span class="string">"node count differs"
+<a href=#394 id=394 data-nosnippet>394</a>        </span>);
+<a href=#395 id=395 data-nosnippet>395</a>    }
+<a href=#396 id=396 data-nosnippet>396</a>
+<a href=#397 id=397 data-nosnippet>397</a>    <span class="attr">#[test]
+<a href=#398 id=398 data-nosnippet>398</a>    </span><span class="kw">fn </span>deterministic_two_moves() {
+<a href=#399 id=399 data-nosnippet>399</a>        <span class="kw">let </span><span class="kw-2">mut </span>game = Game::new();
+<a href=#400 id=400 data-nosnippet>400</a>
+<a href=#401 id=401 data-nosnippet>401</a>        game.play_move(<span class="number">9</span>, <span class="number">9</span>).unwrap();
+<a href=#402 id=402 data-nosnippet>402</a>        game.play_move(<span class="number">10</span>, <span class="number">9</span>).unwrap();
+<a href=#403 id=403 data-nosnippet>403</a>
+<a href=#404 id=404 data-nosnippet>404</a>        assert_deterministic(<span class="kw-2">&amp;</span>game, <span class="number">3</span>);
+<a href=#405 id=405 data-nosnippet>405</a>    }
+<a href=#406 id=406 data-nosnippet>406</a>
+<a href=#407 id=407 data-nosnippet>407</a>    <span class="attr">#[test]
+<a href=#408 id=408 data-nosnippet>408</a>    </span><span class="kw">fn </span>deterministic_block_position() {
+<a href=#409 id=409 data-nosnippet>409</a>        <span class="kw">let </span><span class="kw-2">mut </span>game = Game::new();
+<a href=#410 id=410 data-nosnippet>410</a>
+<a href=#411 id=411 data-nosnippet>411</a>        game.play_move(<span class="number">0</span>, <span class="number">9</span>).unwrap();
+<a href=#412 id=412 data-nosnippet>412</a>        game.play_move(<span class="number">0</span>, <span class="number">0</span>).unwrap();
+<a href=#413 id=413 data-nosnippet>413</a>        game.play_move(<span class="number">1</span>, <span class="number">9</span>).unwrap();
+<a href=#414 id=414 data-nosnippet>414</a>        game.play_move(<span class="number">0</span>, <span class="number">1</span>).unwrap();
+<a href=#415 id=415 data-nosnippet>415</a>        game.play_move(<span class="number">2</span>, <span class="number">9</span>).unwrap();
+<a href=#416 id=416 data-nosnippet>416</a>        game.play_move(<span class="number">0</span>, <span class="number">2</span>).unwrap();
+<a href=#417 id=417 data-nosnippet>417</a>        game.play_move(<span class="number">3</span>, <span class="number">9</span>).unwrap();
+<a href=#418 id=418 data-nosnippet>418</a>
+<a href=#419 id=419 data-nosnippet>419</a>        assert_deterministic(<span class="kw-2">&amp;</span>game, <span class="number">3</span>);
+<a href=#420 id=420 data-nosnippet>420</a>    }
+<a href=#421 id=421 data-nosnippet>421</a>
+<a href=#422 id=422 data-nosnippet>422</a>    <span class="attr">#[test]
+<a href=#423 id=423 data-nosnippet>423</a>    </span><span class="kw">fn </span>deterministic_midgame() {
+<a href=#424 id=424 data-nosnippet>424</a>        <span class="kw">let </span><span class="kw-2">mut </span>game = Game::new();
+<a href=#425 id=425 data-nosnippet>425</a>
+<a href=#426 id=426 data-nosnippet>426</a>        <span class="kw">let </span>moves = [
+<a href=#427 id=427 data-nosnippet>427</a>            (<span class="number">9</span>, <span class="number">9</span>), (<span class="number">10</span>, <span class="number">9</span>),
+<a href=#428 id=428 data-nosnippet>428</a>            (<span class="number">9</span>, <span class="number">10</span>), (<span class="number">10</span>, <span class="number">10</span>),
+<a href=#429 id=429 data-nosnippet>429</a>            (<span class="number">8</span>, <span class="number">9</span>), (<span class="number">11</span>, <span class="number">9</span>),
+<a href=#430 id=430 data-nosnippet>430</a>            (<span class="number">8</span>, <span class="number">10</span>), (<span class="number">11</span>, <span class="number">10</span>),
+<a href=#431 id=431 data-nosnippet>431</a>            (<span class="number">9</span>, <span class="number">8</span>), (<span class="number">10</span>, <span class="number">8</span>),
+<a href=#432 id=432 data-nosnippet>432</a>        ];
+<a href=#433 id=433 data-nosnippet>433</a>
+<a href=#434 id=434 data-nosnippet>434</a>        <span class="kw">for </span>(x, y) <span class="kw">in </span>moves {
+<a href=#435 id=435 data-nosnippet>435</a>            game.play_move(x, y).unwrap();
+<a href=#436 id=436 data-nosnippet>436</a>        }
+<a href=#437 id=437 data-nosnippet>437</a>
+<a href=#438 id=438 data-nosnippet>438</a>        assert_deterministic(<span class="kw-2">&amp;</span>game, <span class="number">4</span>);
+<a href=#439 id=439 data-nosnippet>439</a>    }
+<a href=#440 id=440 data-nosnippet>440</a>}
 </code></pre></div></section></main></body></html>
