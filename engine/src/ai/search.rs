@@ -29,7 +29,7 @@
 #![allow(dead_code)]
 
 use crate::ai::eval::evaluate;
-use crate::game::{Game, GameStatus, Player};
+use crate::game::{Game, GameStatus, Player, Pos};
 use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
 /// Score returned for a decisive terminal position. Large enough to dominate
@@ -40,7 +40,7 @@ pub const WIN_SCORE: i32 = 1_000_000;
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     /// The chosen move, or `None` at depth 0 / when no legal moves exist.
-    pub best_move: Option<(usize, usize)>,
+    pub best_move: Option<Pos>,
     /// Score from the root side-to-move's perspective.
     pub score: i32,
     /// Total nodes (including leaves) visited during the search.
@@ -55,7 +55,7 @@ pub struct SearchResult {
 #[derive(Debug, Clone)]
 pub struct SearchNode {
     /// The move that led to this node. `None` at the root.
-    pub mv: Option<(usize, usize)>,
+    pub mv: Option<Pos>,
     /// Whose turn it is at this node.
     pub player_to_move: Player,
     /// Plies still to expand below this node.
@@ -81,7 +81,7 @@ pub trait Observer {
     /// Called once before exploring a node.
     fn enter(
         &mut self,
-        mv: Option<(usize, usize)>,
+        mv: Option<Pos>,
         player: Player,
         depth: u32,
         alpha: i32,
@@ -99,7 +99,7 @@ pub struct NoopObserver;
 
 impl Observer for NoopObserver {
     #[inline(always)]
-    fn enter(&mut self, _: Option<(usize, usize)>, _: Player, _: u32, _: i32, _: i32) {}
+    fn enter(&mut self, _: Option<Pos>, _: Player, _: u32, _: i32, _: i32) {}
     #[inline(always)]
     fn leave(&mut self, _: i32, _: bool) {}
 }
@@ -135,7 +135,7 @@ impl Default for TreeObserver {
 impl Observer for TreeObserver {
     fn enter(
         &mut self,
-        mv: Option<(usize, usize)>,
+        mv: Option<Pos>,
         player: Player,
         depth: u32,
         alpha: i32,
@@ -208,9 +208,9 @@ fn negamax<O: Observer>(
     mut beta: i32,
     tt: &mut TranspositionTable,
     observer: &mut O,
-    incoming_mv: Option<(usize, usize)>,
+    incoming_mv: Option<Pos>,
     nodes: &mut u64,
-) -> (i32, Option<(usize, usize)>) {
+) -> (i32, Option<Pos>) {
     *nodes += 1;
     let player = game.current_player();
     observer.enter(incoming_mv, player, depth, alpha, beta);
@@ -278,25 +278,25 @@ fn negamax<O: Observer>(
     }
 
     let mut best_score = i32::MIN + 1;
-    let mut best_mv: Option<(usize, usize)> = None;
+    let mut best_mv: Option<Pos> = None;
     let mut pruned = false;
 
-    for (x, y) in moves {
+    for mv in moves {
         // generate_moves already filters illegal placements, but play_move
         // is still the source of truth — skip defensively if it rejects.
-        if game.play_move(x, y).is_err() {
+        if game.play_pos(mv).is_err() {
             continue;
         }
 
         let (child_score, _) =
-            negamax(game, depth - 1, -beta, -alpha, tt, observer, Some((x, y)), nodes);
+            negamax(game, depth - 1, -beta, -alpha, tt, observer, Some(mv), nodes);
         let score = -child_score;
 
         game.undo_move().expect("undo_move must succeed after a successful play_move");
 
         if score > best_score {
             best_score = score;
-            best_mv = Some((x, y));
+            best_mv = Some(mv);
         }
         if best_score > alpha {
             alpha = best_score;
@@ -400,7 +400,7 @@ mod tests {
         let mut tt = TranspositionTable::new(0);
         let result = best_move(&mut game, 1, &mut tt);
         // On an empty board generate_moves yields exactly (9, 9).
-        assert_eq!(result.best_move, Some((9, 9)));
+        assert_eq!(result.best_move, Some(Pos::from_xy(9, 9)));
     }
 
     #[test]
@@ -414,8 +414,8 @@ mod tests {
         let _ = best_move(&mut game, 2, &mut tt);
 
         assert_eq!(game.history.len(), history_before);
-        assert_eq!(game.board.cell_at(9, 9), Some(Player::Black));
-        assert_eq!(game.board.cell_at(10, 9), Some(Player::White));
+        assert_eq!(game.board.cell_at_xy(9, 9), Some(Player::Black));
+        assert_eq!(game.board.cell_at_xy(10, 9), Some(Player::White));
     }
 
     #[test]
@@ -437,7 +437,7 @@ mod tests {
         let result = best_move(&mut game, 2, &mut tt);
         assert_eq!(
             result.best_move,
-            Some((4, 9)),
+            Some(Pos::from_xy(4, 9)),
             "White must block the only winning square",
         );
     }
@@ -518,8 +518,8 @@ mod tests {
         let r1 = best_move(&mut g1, 4, &mut tt_empty);
         let r2 = best_move(&mut g2, 4, &mut tt);
 
-        println!("no TT best move: {}, {}", r1.best_move.unwrap().0, r1.best_move.unwrap().1);
-        println!("TT best move: {}, {}", r2.best_move.unwrap().0, r2.best_move.unwrap().1);
+        println!("no TT best move: {}", r1.best_move.unwrap());
+        println!("TT best move: {}", r2.best_move.unwrap());
 
         assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
         assert_eq!(r1.score, r2.score, "score differs with TT");
