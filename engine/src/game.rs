@@ -346,6 +346,13 @@ impl Game {
     }
 
     /// Place the current player's stone at `Pos` and update the game state.
+    /// Zobrist hash of the current game state.
+    #[inline]
+    pub fn hash(&self) -> u64 {
+        self.hash
+    }
+
+    /// Place the current player's stone at `(x, y)` and update the game state.
     ///
     /// Applies captures, checks for the double-three rule, and updates
     /// [`Game::status`] if the move ends the game.
