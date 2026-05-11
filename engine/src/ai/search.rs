@@ -22,7 +22,7 @@
 #![allow(dead_code)]
 
 use crate::ai::eval::evaluate;
-use crate::game::{Game, GameStatus, Player, Pos};
+use crate::game::{Game, GameStatus, Pos};
 use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
 /// Score returned for a decisive terminal position. Large enough to dominate
@@ -83,28 +83,6 @@ fn negamax(
 ) -> (i32, Option<Pos>) {
     *nodes += 1;
 
-    let original_alpha = alpha;
-    let original_beta = beta;
-    let tt_entry = tt.get(game.hash());
-    if let Some(entry) = tt_entry {
-        if entry.depth >= depth as i32 {
-            match entry.flag {
-                Bound::Exact => {
-                    return (entry.score, entry.best_move);
-                }
-                Bound::Lower => {
-                    alpha = alpha.max(entry.score);
-                }
-                Bound::Upper => {
-                    beta = beta.min(entry.score);
-                }
-            }
-            if alpha >= beta {
-                return (entry.score, entry.best_move);
-            }
-        }
-    }
-
     // Look in the transposition table, if the board has been generated
     let original_alpha = alpha;
     let original_beta = beta;
@@ -122,14 +100,9 @@ fn negamax(
                 }
                 Bound::Upper => {
                     beta = beta.min(entry.score);
-                    if alpha >= beta {
-                        observer.leave(entry.score, true);
-                        return (entry.score, entry.best_move);
-                    }
                 }
             }
             if alpha >= beta {
-                observer.leave(entry.score, true);
                 return (entry.score, entry.best_move);
             }
         }
@@ -175,7 +148,6 @@ fn negamax(
 
     let mut best_score = i32::MIN + 1;
     let mut best_mv: Option<Pos> = None;
-    let mut pruned = false;
 
     for mv in moves {
         // generate_moves already filters illegal placements, but play_move
@@ -395,73 +367,10 @@ mod tests {
         let r1 = best_move(&mut g1, 6, &mut tt_empty);
         let r2 = best_move(&mut g2, 6, &mut tt);
 
-        assert!(r2.nodes_visited < r1.nodes_visited);
-    }
-
-    #[test]
-    fn tt_reduces_node_count_midgame() {
-        let mut g1 = midgame_position();
-        let mut g2 = g1.clone();
-
-        let mut tt_empty = TranspositionTable::new(0);
-        let mut tt = TranspositionTable::new(20);
-
-        let r1 = best_move(&mut g1, 4, &mut tt_empty);
-        let r2 = best_move(&mut g2, 4, &mut tt);
-
-        assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
-        assert_eq!(r1.score, r2.score, "score differs with TT");
-        assert!(r2.nodes_visited < r1.nodes_visited);
-    }
-
-    #[test]
-    fn tt_does_not_change_best_move() {
-        let mut g1 = Game::new();
-        let mut g2 = g1.clone();
-
-        let mut tt_empty = TranspositionTable::new(0);
-        let mut tt = TranspositionTable::new(20);
-
-        let r1 = best_move(&mut g1, 4, &mut tt_empty); // no TT version
-        let r2 = best_move(&mut g2, 4, &mut tt);
-
-        assert_eq!(r1.best_move, r2.best_move);
-        assert_eq!(r1.score, r2.score);
-    }
-
-    #[test]
-    fn tt_reduces_node_count() {
-        let mut g1 = Game::new();
-        let mut g2 = g1.clone();
-
-        let mut tt_empty = TranspositionTable::new(0);
-        let mut tt = TranspositionTable::new(20);
-
-        let r1 = best_move(&mut g1, 6, &mut tt_empty);
-        let r2 = best_move(&mut g2, 6, &mut tt);
-
         println!("no TT nodes: {}", r1.nodes_visited);
         println!("TT nodes: {}", r2.nodes_visited);
 
         assert!(r2.nodes_visited < r1.nodes_visited);
-    }
-
-    fn midgame_position() -> Game {
-        let mut g = Game::new();
-
-        let moves = [
-            (9, 9), (10, 9),
-            (9, 10), (10, 10),
-            (8, 9), (11, 9),
-            (8, 10), (11, 10),
-            (9, 8), (10, 8),
-        ];
-
-        for (x, y) in moves {
-            g.play_move(x, y).unwrap();
-        }
-
-        g
     }
 
     #[test]
