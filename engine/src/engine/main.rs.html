@@ -3,7 +3,7 @@
 <a href=#3 id=3 data-nosnippet>3</a>//! A Gomoku (Five-in-a-Row, with captures and the no-double-three rule)
 <a href=#4 id=4 data-nosnippet>4</a>//! engine: rules, search, and heuristic evaluation. The binary is currently
 <a href=#5 id=5 data-nosnippet>5</a>//! a stub — every interesting piece is a library module and the public API
-<a href=#6 id=6 data-nosnippet>6</a>//! lives behind [`ai::best_move`] and [`ai::best_move_verbose`].
+<a href=#6 id=6 data-nosnippet>6</a>//! lives behind [`ai::best_move`].
 <a href=#7 id=7 data-nosnippet>7</a>//!
 <a href=#8 id=8 data-nosnippet>8</a>//! ## Module map
 <a href=#9 id=9 data-nosnippet>9</a>//!
@@ -29,19 +29,18 @@
 <a href=#29 id=29 data-nosnippet>29</a>//!
 <a href=#30 id=30 data-nosnippet>30</a>//! ## Search
 <a href=#31 id=31 data-nosnippet>31</a>//!
-<a href=#32 id=32 data-nosnippet>32</a>//! [`ai::search`] runs negamax with alpha-beta pruning. Two entry points
-<a href=#33 id=33 data-nosnippet>33</a>//! share one recursive core through a generic `Observer`: the fast path
-<a href=#34 id=34 data-nosnippet>34</a>//! ([`ai::best_move`]) uses a no-op observer that the compiler erases, while
-<a href=#35 id=35 data-nosnippet>35</a>//! the verbose path ([`ai::best_move_verbose`]) builds a full search tree
-<a href=#36 id=36 data-nosnippet>36</a>//! for the visualizer. The evaluator ([`ai::evaluate`]) scores positions
-<a href=#37 id=37 data-nosnippet>37</a>//! from the side-to-move's perspective using the pattern tallies above.
-<a href=#38 id=38 data-nosnippet>38</a>
-<a href=#39 id=39 data-nosnippet>39</a></span><span class="kw">mod </span>ai;
-<a href=#40 id=40 data-nosnippet>40</a><span class="kw">mod </span>zobrist;
-<a href=#41 id=41 data-nosnippet>41</a><span class="kw">mod </span>board;
-<a href=#42 id=42 data-nosnippet>42</a><span class="kw">mod </span>constants;
-<a href=#43 id=43 data-nosnippet>43</a><span class="kw">mod </span>game;
-<a href=#44 id=44 data-nosnippet>44</a><span class="kw">mod </span>patterns;
-<a href=#45 id=45 data-nosnippet>45</a>
-<a href=#46 id=46 data-nosnippet>46</a><span class="kw">fn </span>main() {}
+<a href=#32 id=32 data-nosnippet>32</a>//! [`ai::search`] runs negamax with alpha-beta pruning and a transposition
+<a href=#33 id=33 data-nosnippet>33</a>//! table keyed by the incrementally maintained Zobrist hash. The evaluator
+<a href=#34 id=34 data-nosnippet>34</a>//! ([`ai::evaluate`]) scores positions from the side-to-move's perspective
+<a href=#35 id=35 data-nosnippet>35</a>//! using the pattern tallies above.
+<a href=#36 id=36 data-nosnippet>36</a>
+<a href=#37 id=37 data-nosnippet>37</a></span><span class="kw">mod </span>ai;
+<a href=#38 id=38 data-nosnippet>38</a><span class="kw">mod </span>zobrist;
+<a href=#39 id=39 data-nosnippet>39</a><span class="kw">mod </span>transpose;
+<a href=#40 id=40 data-nosnippet>40</a><span class="kw">mod </span>board;
+<a href=#41 id=41 data-nosnippet>41</a><span class="kw">mod </span>constants;
+<a href=#42 id=42 data-nosnippet>42</a><span class="kw">mod </span>game;
+<a href=#43 id=43 data-nosnippet>43</a><span class="kw">mod </span>patterns;
+<a href=#44 id=44 data-nosnippet>44</a>
+<a href=#45 id=45 data-nosnippet>45</a><span class="kw">fn </span>main() {}
 </code></pre></div></section></main></body></html>

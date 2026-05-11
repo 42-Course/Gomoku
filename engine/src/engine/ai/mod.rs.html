@@ -2,23 +2,20 @@
 <a href=#2 id=2 data-nosnippet>2</a>//!
 <a href=#3 id=3 data-nosnippet>3</a>//! The two submodules are intentionally small and orthogonal:
 <a href=#4 id=4 data-nosnippet>4</a>//!
-<a href=#5 id=5 data-nosnippet>5</a>//! - [`search`] — negamax with alpha-beta pruning and a generic observer
-<a href=#6 id=6 data-nosnippet>6</a>//!   hook for the visualizer.
-<a href=#7 id=7 data-nosnippet>7</a>//! - [`eval`] — heuristic scoring of non-terminal positions, built on top
-<a href=#8 id=8 data-nosnippet>8</a>//!   of the line-pattern primitives in [`crate::patterns`].
-<a href=#9 id=9 data-nosnippet>9</a>//!
-<a href=#10 id=10 data-nosnippet>10</a>//! ## Public entry points
-<a href=#11 id=11 data-nosnippet>11</a>//!
-<a href=#12 id=12 data-nosnippet>12</a>//! - [`best_move`] for the fast path (no tree recording).
-<a href=#13 id=13 data-nosnippet>13</a>//! - [`best_move_verbose`] for the same search plus a recorded
-<a href=#14 id=14 data-nosnippet>14</a>//!   [`SearchNode`] tree.
-<a href=#15 id=15 data-nosnippet>15</a>//! - [`evaluate`] if you want the leaf score for a position directly.
+<a href=#5 id=5 data-nosnippet>5</a>//! - [`search`] — negamax with alpha-beta pruning and transposition table.
+<a href=#6 id=6 data-nosnippet>6</a>//! - [`eval`] — heuristic scoring of non-terminal positions, built on top
+<a href=#7 id=7 data-nosnippet>7</a>//!   of the line-pattern primitives in [`crate::patterns`].
+<a href=#8 id=8 data-nosnippet>8</a>//!
+<a href=#9 id=9 data-nosnippet>9</a>//! ## Public entry points
+<a href=#10 id=10 data-nosnippet>10</a>//!
+<a href=#11 id=11 data-nosnippet>11</a>//! - [`best_move`] runs the search and returns the chosen move + score.
+<a href=#12 id=12 data-nosnippet>12</a>//! - [`evaluate`] if you want the leaf score for a position directly.
+<a href=#13 id=13 data-nosnippet>13</a>
+<a href=#14 id=14 data-nosnippet>14</a></span><span class="kw">pub mod </span>eval;
+<a href=#15 id=15 data-nosnippet>15</a><span class="kw">pub mod </span>search;
 <a href=#16 id=16 data-nosnippet>16</a>
-<a href=#17 id=17 data-nosnippet>17</a></span><span class="kw">pub mod </span>eval;
-<a href=#18 id=18 data-nosnippet>18</a><span class="kw">pub mod </span>search;
-<a href=#19 id=19 data-nosnippet>19</a>
-<a href=#20 id=20 data-nosnippet>20</a><span class="attr">#[allow(unused_imports)]
-<a href=#21 id=21 data-nosnippet>21</a></span><span class="kw">pub use </span>eval::evaluate;
-<a href=#22 id=22 data-nosnippet>22</a><span class="attr">#[allow(unused_imports)]
-<a href=#23 id=23 data-nosnippet>23</a></span><span class="kw">pub use </span>search::{best_move, best_move_verbose, SearchNode, SearchResult};
+<a href=#17 id=17 data-nosnippet>17</a><span class="attr">#[allow(unused_imports)]
+<a href=#18 id=18 data-nosnippet>18</a></span><span class="kw">pub use </span>eval::evaluate;
+<a href=#19 id=19 data-nosnippet>19</a><span class="attr">#[allow(unused_imports)]
+<a href=#20 id=20 data-nosnippet>20</a></span><span class="kw">pub use </span>search::{best_move, SearchResult};
 </code></pre></div></section></main></body></html>

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["main"],"macro":["play"],"mod":["ai","board","constants","game","patterns","zobrist"]};
+window.SIDEBAR_ITEMS = {"fn":["main"],"macro":["play"],"mod":["ai","board","constants","game","patterns","transpose","zobrist"]};
