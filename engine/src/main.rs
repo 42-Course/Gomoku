@@ -3,7 +3,7 @@
 //! A Gomoku (Five-in-a-Row, with captures and the no-double-three rule)
 //! engine: rules, search, and heuristic evaluation. The binary is currently
 //! a stub — every interesting piece is a library module and the public API
-//! lives behind [`ai::best_move`] and [`ai::best_move_verbose`].
+//! lives behind [`ai::best_move`].
 //!
 //! ## Module map
 //!
@@ -29,12 +29,10 @@
 //!
 //! ## Search
 //!
-//! [`ai::search`] runs negamax with alpha-beta pruning. Two entry points
-//! share one recursive core through a generic `Observer`: the fast path
-//! ([`ai::best_move`]) uses a no-op observer that the compiler erases, while
-//! the verbose path ([`ai::best_move_verbose`]) builds a full search tree
-//! for the visualizer. The evaluator ([`ai::evaluate`]) scores positions
-//! from the side-to-move's perspective using the pattern tallies above.
+//! [`ai::search`] runs negamax with alpha-beta pruning and a transposition
+//! table keyed by the incrementally maintained Zobrist hash. The evaluator
+//! ([`ai::evaluate`]) scores positions from the side-to-move's perspective
+//! using the pattern tallies above.
 
 mod ai;
 mod zobrist;

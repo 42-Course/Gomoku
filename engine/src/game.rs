@@ -166,7 +166,7 @@ pub struct Game {
     /// Capture pair counts as `(black, white)`. Five pairs wins.
     pub captures: (u8, u8),
     /// Zobrist hash of the current game state (board, captures, side-to-move), updated incrementally for fast position lookup in search.
-    pub hash: u64,
+    hash: u64,
 }
 
 /// Whether the game is still being played, has been won, or is drawn.
@@ -265,6 +265,12 @@ impl Game {
     /// Whose turn it currently is. Derived from `history.len()`.
     pub fn current_player(&self) -> Player {
         self.player_at_move(self.history.len())
+    }
+
+    /// Zobrist hash of the current game state.
+    #[inline]
+    pub fn hash(&self) -> u64 {
+        self.hash
     }
 
     /// Place the current player's stone at `(x, y)` and update the game state.

@@ -1,12 +1,4 @@
-//! Negamax + alpha-beta search.
-//!
-//! Two entry points share one recursive core through a generic [`Observer`]:
-//!
-//! - [`best_move`]         — fast path, uses [`NoopObserver`] (inlined away).
-//! - [`best_move_verbose`] — records the full search tree for the visualizer.
-//!
-//! Keeping the observer generic means the hot path pays nothing for the
-//! visualizer plumbing; the verbose path builds a [`SearchNode`] tree.
+//! Negamax + alpha-beta search with transposition table support.
 //!
 //! # Conventions
 //!
@@ -20,7 +12,8 @@
 //!
 //! ```ignore
 //! let mut game = Game::new();
-//! let result = best_move(&mut game, 4);
+//! let mut tt = TranspositionTable::new(20);
+//! let result = best_move(&mut game, 4, &mut tt);
 //! if let Some((x, y)) = result.best_move {
 //!     game.play_move(x, y).unwrap();
 //! }
@@ -29,7 +22,7 @@
 #![allow(dead_code)]
 
 use crate::ai::eval::evaluate;
-use crate::game::{Game, GameStatus, Player};
+use crate::game::{Game, GameStatus};
 use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
 /// Score returned for a decisive terminal position. Large enough to dominate
@@ -45,126 +38,6 @@ pub struct SearchResult {
     pub score: i32,
     /// Total nodes (including leaves) visited during the search.
     pub nodes_visited: u64,
-}
-
-/// One node in the recorded search tree (verbose mode only).
-///
-/// `score` is from the side-to-move's perspective at this node (negamax
-/// convention). `pruned` is true when an alpha cutoff stopped exploration
-/// before all children were visited.
-#[derive(Debug, Clone)]
-pub struct SearchNode {
-    /// The move that led to this node. `None` at the root.
-    pub mv: Option<(usize, usize)>,
-    /// Whose turn it is at this node.
-    pub player_to_move: Player,
-    /// Plies still to expand below this node.
-    pub depth_remaining: u32,
-    /// Alpha bound on entry.
-    pub alpha_in: i32,
-    /// Beta bound on entry.
-    pub beta_in: i32,
-    /// Final score returned by this node, side-to-move's perspective.
-    pub score: i32,
-    /// `true` if an alpha-beta cutoff stopped expansion early.
-    pub pruned: bool,
-    /// Recorded children, in the order they were visited.
-    pub children: Vec<SearchNode>,
-}
-
-/// Hook points the search calls on entering/leaving every node.
-///
-/// Every recursive call into [`negamax`] fires `enter` once on the way
-/// down and `leave` once on the way up. Implementations must be cheap —
-/// they're on the hot path.
-pub trait Observer {
-    /// Called once before exploring a node.
-    fn enter(
-        &mut self,
-        mv: Option<(usize, usize)>,
-        player: Player,
-        depth: u32,
-        alpha: i32,
-        beta: i32,
-    );
-
-    /// Called once after a node returns. `pruned` is `true` if exploration
-    /// stopped on an alpha-beta cutoff.
-    fn leave(&mut self, score: i32, pruned: bool);
-}
-
-/// Zero-overhead observer. Monomorphization + `#[inline]` lets the compiler
-/// erase all calls in release builds.
-pub struct NoopObserver;
-
-impl Observer for NoopObserver {
-    #[inline(always)]
-    fn enter(&mut self, _: Option<(usize, usize)>, _: Player, _: u32, _: i32, _: i32) {}
-    #[inline(always)]
-    fn leave(&mut self, _: i32, _: bool) {}
-}
-
-/// Builds a tree of every visited node for the visualizer.
-///
-/// The observer maintains a stack mirroring the recursion: `enter` pushes
-/// a fresh node, `leave` pops the current node and attaches it to its
-/// parent (or stores it as the root when the stack empties).
-pub struct TreeObserver {
-    stack: Vec<SearchNode>,
-    root: Option<SearchNode>,
-}
-
-impl TreeObserver {
-    /// Create an empty observer ready to record a search.
-    pub fn new() -> Self {
-        Self { stack: Vec::new(), root: None }
-    }
-
-    /// Consume the observer and return the recorded root (if any).
-    pub fn into_tree(self) -> Option<SearchNode> {
-        self.root
-    }
-}
-
-impl Default for TreeObserver {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
-impl Observer for TreeObserver {
-    fn enter(
-        &mut self,
-        mv: Option<(usize, usize)>,
-        player: Player,
-        depth: u32,
-        alpha: i32,
-        beta: i32,
-    ) {
-        self.stack.push(SearchNode {
-            mv,
-            player_to_move: player,
-            depth_remaining: depth,
-            alpha_in: alpha,
-            beta_in: beta,
-            score: 0,
-            pruned: false,
-            children: Vec::new(),
-        });
-    }
-
-    fn leave(&mut self, score: i32, pruned: bool) {
-        let mut node = self
-            .stack
-            .pop()
-            .expect("Observer::leave without matching enter");
-        node.score = score;
-        node.pruned = pruned;
-        match self.stack.last_mut() {
-            Some(parent) => parent.children.push(node),
-            None => self.root = Some(node),
-        }
-    }
 }
 
 /// If the position is terminal, return its score from the side-to-move's
@@ -200,27 +73,19 @@ fn terminal_score(game: &Game, depth: u32) -> Option<i32> {
 /// pruning and ordering.
 ///
 /// Returns `(score, best_move_at_this_node)`.
-#[allow(clippy::too_many_arguments)]
-fn negamax<O: Observer>(
+fn negamax(
     game: &mut Game,
     depth: u32,
     mut alpha: i32,
     mut beta: i32,
     tt: &mut TranspositionTable,
-    observer: &mut O,
-    incoming_mv: Option<(usize, usize)>,
     nodes: &mut u64,
 ) -> (i32, Option<(usize, usize)>) {
     *nodes += 1;
-    let player = game.current_player();
-    observer.enter(incoming_mv, player, depth, alpha, beta);
 
-    // Look in the transposition table, if the board has been generated
     let original_alpha = alpha;
     let original_beta = beta;
-    // Probe TT before searching children. Exact scores may terminate the
-    // search immediately; lower/upper bounds may tighten the search window.
-    let tt_entry = tt.get(game.hash);
+    let tt_entry = tt.get(game.hash());
     if let Some(entry) = tt_entry {
         if entry.depth >= depth as i32 {
             match entry.flag {
@@ -235,21 +100,17 @@ fn negamax<O: Observer>(
                 }
             }
             if alpha >= beta {
-                observer.leave(entry.score, true);
                 return (entry.score, entry.best_move);
             }
         }
     }
 
     if let Some(score) = terminal_score(game, depth) {
-        observer.leave(score, false);
         return (score, None);
     }
 
     if depth == 0 {
-        let score = evaluate(game);
-        observer.leave(score, false);
-        return (score, None);
+        return (evaluate(game), None);
     }
 
     let mut moves = game.generate_moves();
@@ -257,9 +118,7 @@ fn negamax<O: Observer>(
     if moves.is_empty() {
         // No legal continuations but game isn't flagged terminal — treat as
         // a quiet position and hand off to the evaluator.
-        let score = evaluate(game);
-        observer.leave(score, false);
-        return (score, None);
+        return (evaluate(game), None);
     }
 
     if let Some(entry) = tt_entry {
@@ -275,7 +134,6 @@ fn negamax<O: Observer>(
 
     let mut best_score = i32::MIN + 1;
     let mut best_mv: Option<(usize, usize)> = None;
-    let mut pruned = false;
 
     for (x, y) in moves {
         // generate_moves already filters illegal placements, but play_move
@@ -284,8 +142,7 @@ fn negamax<O: Observer>(
             continue;
         }
 
-        let (child_score, _) =
-            negamax(game, depth - 1, -beta, -alpha, tt, observer, Some((x, y)), nodes);
+        let (child_score, _) = negamax(game, depth - 1, -beta, -alpha, tt, nodes);
         let score = -child_score;
 
         game.undo_move().expect("undo_move must succeed after a successful play_move");
@@ -298,7 +155,6 @@ fn negamax<O: Observer>(
             alpha = best_score;
         }
         if alpha >= beta {
-            pruned = true;
             break;
         }
     }
@@ -312,19 +168,18 @@ fn negamax<O: Observer>(
         Bound::Exact
     };
 
-    tt.insert(game.hash, TTEntry {
-        key: game.hash,
+    tt.insert(game.hash(), TTEntry {
+        key: game.hash(),
         depth: depth as i32,
         score: best_score,
         flag,
         best_move: best_mv,
     });
 
-    observer.leave(best_score, pruned);
     (best_score, best_mv)
 }
 
-/// Fast path: run alpha-beta and return the best move + score.
+/// Run alpha-beta and return the best move + score.
 ///
 /// The game is left untouched (every played move is undone).
 ///
@@ -332,54 +187,20 @@ fn negamax<O: Observer>(
 ///
 /// ```ignore
 /// let mut game = Game::new();
-/// let result = best_move(&mut game, 4);
+/// let mut tt = TranspositionTable::new(20);
+/// let result = best_move(&mut game, 4, &mut tt);
 /// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
 /// ```
 pub fn best_move(game: &mut Game, depth: u32, tt: &mut TranspositionTable) -> SearchResult {
-    let mut obs = NoopObserver;
     let mut nodes = 0u64;
-    let (score, mv) = negamax(
-        game,
-        depth,
-        i32::MIN + 1,
-        i32::MAX - 1,
-        tt,
-        &mut obs,
-        None,
-        &mut nodes,
-    );
+    let (score, mv) = negamax(game, depth, i32::MIN + 1, i32::MAX - 1, tt, &mut nodes);
     SearchResult { best_move: mv, score, nodes_visited: nodes }
-}
-
-/// Verbose path: same search, plus a recorded tree for the visualizer.
-///
-/// Returns the same [`SearchResult`] as [`best_move`] alongside the root
-/// [`SearchNode`] of the explored tree (if any nodes were visited).
-pub fn best_move_verbose(
-    game: &mut Game,
-    depth: u32,
-    tt: &mut TranspositionTable
-) -> (SearchResult, Option<SearchNode>) {
-    let mut obs = TreeObserver::new();
-    let mut nodes = 0u64;
-    let (score, mv) = negamax(
-        game,
-        depth,
-        i32::MIN + 1,
-        i32::MAX - 1,
-        tt,
-        &mut obs,
-        None,
-        &mut nodes,
-    );
-    let result = SearchResult { best_move: mv, score, nodes_visited: nodes };
-    (result, obs.into_tree())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::game::Game;
+    use crate::game::{Game, Player};
 
     #[test]
     fn depth_zero_returns_eval_and_no_move() {
@@ -417,7 +238,7 @@ mod tests {
     #[test]
     fn blocks_an_immediate_win() {
         // Black has four stones in a row against the left edge: cols 0..=3 on
-        // row 9. The only way Black can extend to five is at (5, 9). If White
+        // row 9. The only way Black can extend to five is at (4, 9). If White
         // doesn't take it, Black wins on the next ply. White is on move.
         let mut game = Game::new();
         game.play_move(0, 9).unwrap();    // B
@@ -436,21 +257,6 @@ mod tests {
             Some((4, 9)),
             "White must block the only winning square",
         );
-    }
-
-    #[test]
-    fn verbose_records_a_tree() {
-        let mut game = Game::new();
-        game.play_move(9, 9).unwrap();
-
-        let mut tt = TranspositionTable::new(0);
-        let (result, tree) = best_move_verbose(&mut game, 2, &mut tt);
-        let root = tree.expect("verbose mode should produce a root node");
-
-        assert_eq!(root.depth_remaining, 2);
-        assert_eq!(root.mv, None);
-        assert_eq!(root.score, result.score);
-        assert!(!root.children.is_empty());
     }
 
     fn assert_deterministic(game: &Game, depth: u32) {
@@ -529,7 +335,7 @@ mod tests {
         let mut tt_empty = TranspositionTable::new(0);
         let mut tt = TranspositionTable::new(20);
 
-        let r1 = best_move(&mut g1, 4, &mut tt_empty); // no TT version
+        let r1 = best_move(&mut g1, 4, &mut tt_empty);
         let r2 = best_move(&mut g2, 4, &mut tt);
 
         assert_eq!(r1.best_move, r2.best_move);
@@ -547,9 +353,6 @@ mod tests {
         let r1 = best_move(&mut g1, 6, &mut tt_empty);
         let r2 = best_move(&mut g2, 6, &mut tt);
 
-        println!("no TT nodes: {}", r1.nodes_visited);
-        println!("TT nodes: {}", r2.nodes_visited);
-
         assert!(r2.nodes_visited < r1.nodes_visited);
     }
 
@@ -564,15 +367,8 @@ mod tests {
         let r1 = best_move(&mut g1, 4, &mut tt_empty);
         let r2 = best_move(&mut g2, 4, &mut tt);
 
-        println!("no TT best move: {}, {}", r1.best_move.unwrap().0, r1.best_move.unwrap().1);
-        println!("TT best move: {}, {}", r2.best_move.unwrap().0, r2.best_move.unwrap().1);
-
         assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
         assert_eq!(r1.score, r2.score, "score differs with TT");
-
-        println!("no TT nodes: {}", r1.nodes_visited);
-        println!("TT nodes: {}", r2.nodes_visited);
-
         assert!(r2.nodes_visited < r1.nodes_visited);
     }
 }

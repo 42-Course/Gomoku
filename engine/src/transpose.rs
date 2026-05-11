@@ -104,14 +104,14 @@ impl TranspositionTable {
     }
     /// Insert or replace a TT entry.
     ///
-    /// Replacement policy:
-    /// - empty slots are always replaced
-    /// - deeper searches replace shallower searches
-    pub fn insert (&mut self, hash: u64, new_entry: TTEntry) {
+    /// Replacement policy: deeper searches replace shallower ones. Empty
+    /// slots use `depth = -1` (set by [`TTEntry::empty`]), so any valid
+    /// depth `>= 0` will always replace an empty slot under the same rule.
+    pub fn insert(&mut self, hash: u64, new_entry: TTEntry) {
         let index = (hash as usize) & self.mask;
         let entry = &mut self.entries[index];
 
-        if entry.key == 0 || new_entry.depth >= entry.depth {
+        if new_entry.depth >= entry.depth {
             *entry = new_entry;
         }
     }
