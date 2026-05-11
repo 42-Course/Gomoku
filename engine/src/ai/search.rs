@@ -232,10 +232,6 @@ fn negamax<O: Observer>(
                 }
                 Bound::Upper => {
                     beta = beta.min(entry.score);
-                    if alpha >= beta {
-                        observer.leave(entry.score, true);
-                        return (entry.score, entry.best_move);
-                    }
                 }
             }
             if alpha >= beta {
