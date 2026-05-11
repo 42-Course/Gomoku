@@ -475,6 +475,31 @@ mod tests {
         );
     }
 
+    fn midgame_position() -> Game {
+        let mut g = Game::new();
+
+        let moves = [
+            (9, 9), (10, 9),
+            (9, 10), (10, 10),
+            (8, 9), (11, 9),
+            (8, 10), (11, 10),
+            (9, 8), (10, 8),
+        ];
+
+        for (x, y) in moves {
+            g.play_move(x, y).unwrap();
+        }
+
+        g
+    }
+
+    #[test]
+    fn deterministic_midgame() {
+        let game = midgame_position();
+
+        assert_deterministic(&game, 4);
+    }
+
     #[test]
     fn deterministic_two_moves() {
         let mut game = Game::new();
@@ -532,31 +557,6 @@ mod tests {
         assert!(r2.nodes_visited < r1.nodes_visited);
     }
 
-    fn midgame_position() -> Game {
-        let mut g = Game::new();
-
-        let moves = [
-            (9, 9), (10, 9),
-            (9, 10), (10, 10),
-            (8, 9), (11, 9),
-            (8, 10), (11, 10),
-            (9, 8), (10, 8),
-        ];
-
-        for (x, y) in moves {
-            g.play_move(x, y).unwrap();
-        }
-
-        g
-    }
-
-    #[test]
-    fn deterministic_midgame() {
-        let game = midgame_position();
-
-        assert_deterministic(&game, 4);
-    }
-        
     #[test]
     fn tt_reduces_node_count_midgame() {
         let mut g1 = midgame_position();
