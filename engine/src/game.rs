@@ -267,6 +267,12 @@ impl Game {
         self.player_at_move(self.history.len())
     }
 
+    /// Zobrist hash of the current game state.
+    #[inline]
+    pub fn hash(&self) -> u64 {
+        self.hash
+    }
+
     /// Place the current player's stone at `(x, y)` and update the game state.
     ///
     /// Applies captures, checks for the double-three rule, and updates
