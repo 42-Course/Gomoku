@@ -16,6 +16,8 @@
 //! ```
 //!
 //! instead of modulo division.
+
+use crate::game::Pos;
 /// Type of score stored in the transposition table.
 ///
 /// TT scores may represent:
@@ -40,7 +42,7 @@ pub struct TTEntry {
     pub depth: i32,
     pub score: i32,
     pub flag: Bound,
-    pub best_move: Option<(usize, usize)>,
+    pub best_move: Option<Pos>,
 }
 
 #[allow(dead_code)]

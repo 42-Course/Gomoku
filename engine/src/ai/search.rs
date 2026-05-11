@@ -22,7 +22,7 @@
 #![allow(dead_code)]
 
 use crate::ai::eval::evaluate;
-use crate::game::{Game, GameStatus};
+use crate::game::{Game, GameStatus, Pos};
 use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
 /// Score returned for a decisive terminal position. Large enough to dominate
@@ -33,7 +33,7 @@ pub const WIN_SCORE: i32 = 1_000_000;
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     /// The chosen move, or `None` at depth 0 / when no legal moves exist.
-    pub best_move: Option<(usize, usize)>,
+    pub best_move: Option<Pos>,
     /// Score from the root side-to-move's perspective.
     pub score: i32,
     /// Total nodes (including leaves) visited during the search.
@@ -80,11 +80,14 @@ fn negamax(
     mut beta: i32,
     tt: &mut TranspositionTable,
     nodes: &mut u64,
-) -> (i32, Option<(usize, usize)>) {
+) -> (i32, Option<Pos>) {
     *nodes += 1;
 
+    // Look in the transposition table, if the board has been generated
     let original_alpha = alpha;
     let original_beta = beta;
+    // Probe TT before searching children. Exact scores may terminate the
+    // search immediately; lower/upper bounds may tighten the search window.
     let tt_entry = tt.get(game.hash());
     if let Some(entry) = tt_entry {
         if entry.depth >= depth as i32 {
@@ -132,13 +135,24 @@ fn negamax(
         }
     }
 
-    let mut best_score = i32::MIN + 1;
-    let mut best_mv: Option<(usize, usize)> = None;
+    if let Some(entry) = tt_entry {
+        if entry.depth >= depth as i32 {
+            if let Some(tt_mv) = entry.best_move {
+                if let Some(pos) = moves.iter().position(|&m| m == tt_mv) {
+                    // Search the previous best move first to maximize alpha-beta cutoffs.
+                    moves.swap(0, pos);
+                }
+            }
+        }
+    }
 
-    for (x, y) in moves {
+    let mut best_score = i32::MIN + 1;
+    let mut best_mv: Option<Pos> = None;
+
+    for mv in moves {
         // generate_moves already filters illegal placements, but play_move
         // is still the source of truth — skip defensively if it rejects.
-        if game.play_move(x, y).is_err() {
+        if game.play_pos(mv).is_err() {
             continue;
         }
 
@@ -149,7 +163,7 @@ fn negamax(
 
         if score > best_score {
             best_score = score;
-            best_mv = Some((x, y));
+            best_mv = Some(mv);
         }
         if best_score > alpha {
             alpha = best_score;
@@ -217,7 +231,7 @@ mod tests {
         let mut tt = TranspositionTable::new(0);
         let result = best_move(&mut game, 1, &mut tt);
         // On an empty board generate_moves yields exactly (9, 9).
-        assert_eq!(result.best_move, Some((9, 9)));
+        assert_eq!(result.best_move, Some(Pos::from_xy(9, 9)));
     }
 
     #[test]
@@ -231,14 +245,14 @@ mod tests {
         let _ = best_move(&mut game, 2, &mut tt);
 
         assert_eq!(game.history.len(), history_before);
-        assert_eq!(game.board.cell_at(9, 9), Some(Player::Black));
-        assert_eq!(game.board.cell_at(10, 9), Some(Player::White));
+        assert_eq!(game.board.cell_at_xy(9, 9), Some(Player::Black));
+        assert_eq!(game.board.cell_at_xy(10, 9), Some(Player::White));
     }
 
     #[test]
     fn blocks_an_immediate_win() {
         // Black has four stones in a row against the left edge: cols 0..=3 on
-        // row 9. The only way Black can extend to five is at (4, 9). If White
+        // row 9. The only way Black can extend to five is at (5, 9). If White
         // doesn't take it, Black wins on the next ply. White is on move.
         let mut game = Game::new();
         game.play_move(0, 9).unwrap();    // B
@@ -254,7 +268,7 @@ mod tests {
         let result = best_move(&mut game, 2, &mut tt);
         assert_eq!(
             result.best_move,
-            Some((4, 9)),
+            Some(Pos::from_xy(4, 9)),
             "White must block the only winning square",
         );
     }
@@ -353,6 +367,9 @@ mod tests {
         let r1 = best_move(&mut g1, 6, &mut tt_empty);
         let r2 = best_move(&mut g2, 6, &mut tt);
 
+        println!("no TT nodes: {}", r1.nodes_visited);
+        println!("TT nodes: {}", r2.nodes_visited);
+
         assert!(r2.nodes_visited < r1.nodes_visited);
     }
 
@@ -367,8 +384,15 @@ mod tests {
         let r1 = best_move(&mut g1, 4, &mut tt_empty);
         let r2 = best_move(&mut g2, 4, &mut tt);
 
+        println!("no TT best move: {}", r1.best_move.unwrap());
+        println!("TT best move: {}", r2.best_move.unwrap());
+
         assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
         assert_eq!(r1.score, r2.score, "score differs with TT");
+
+        println!("no TT nodes: {}", r1.nodes_visited);
+        println!("TT nodes: {}", r2.nodes_visited);
+
         assert!(r2.nodes_visited < r1.nodes_visited);
     }
 }
