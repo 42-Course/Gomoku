@@ -201,13 +201,13 @@ fn negamax(
 ///
 /// ```ignore
 /// let mut game = Game::new();
-/// let mut tt = TranspositionTable::new(20);
-/// let result = best_move(&mut game, 4, &mut tt);
+/// let result = best_move(&mut game, 4, 20);
 /// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
 /// ```
-pub fn best_move(game: &mut Game, depth: u32, tt: &mut TranspositionTable) -> SearchResult {
+pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
     let mut nodes = 0u64;
-    let (score, mv) = negamax(game, depth, i32::MIN + 1, i32::MAX - 1, tt, &mut nodes);
+    let mut tt = TranspositionTable::new(tt_size);
+    let (score, mv) = negamax(game, depth, i32::MIN + 1, i32::MAX - 1, &mut tt, &mut nodes);
     SearchResult { best_move: mv, score, nodes_visited: nodes }
 }
 
@@ -219,8 +219,7 @@ mod tests {
     #[test]
     fn depth_zero_returns_eval_and_no_move() {
         let mut game = Game::new();
-        let mut tt = TranspositionTable::new(0);
-        let result = best_move(&mut game, 0, &mut tt);
+        let result = best_move(&mut game, 0, 0);
         assert_eq!(result.best_move, None);
         assert_eq!(result.nodes_visited, 1);
     }
@@ -228,8 +227,7 @@ mod tests {
     #[test]
     fn returns_a_legal_move_on_empty_board() {
         let mut game = Game::new();
-        let mut tt = TranspositionTable::new(0);
-        let result = best_move(&mut game, 1, &mut tt);
+        let result = best_move(&mut game, 1, 0);
         // On an empty board generate_moves yields exactly (9, 9).
         assert_eq!(result.best_move, Some(Pos::from_xy(9, 9)));
     }
@@ -241,8 +239,7 @@ mod tests {
         game.play_move(10, 9).unwrap();
         let history_before = game.history.len();
 
-        let mut tt = TranspositionTable::new(0);
-        let _ = best_move(&mut game, 2, &mut tt);
+        let _ = best_move(&mut game, 2, 0);
 
         assert_eq!(game.history.len(), history_before);
         assert_eq!(game.board.cell_at_xy(9, 9), Some(Player::Black));
@@ -264,8 +261,7 @@ mod tests {
         game.play_move(3, 9).unwrap();    // B
         // White to move.
 
-        let mut tt = TranspositionTable::new(0);
-        let result = best_move(&mut game, 2, &mut tt);
+        let result = best_move(&mut game, 2, 0);
         assert_eq!(
             result.best_move,
             Some(Pos::from_xy(4, 9)),
@@ -276,11 +272,9 @@ mod tests {
     fn assert_deterministic(game: &Game, depth: u32) {
         let mut g1 = game.clone();
         let mut g2 = game.clone();
-        let mut tt1 = TranspositionTable::new(20);
-        let mut tt2 = TranspositionTable::new(20);
 
-        let r1 = best_move(&mut g1, depth, &mut tt1);
-        let r2 = best_move(&mut g2, depth, &mut tt2);
+        let r1 = best_move(&mut g1, depth, 20);
+        let r2 = best_move(&mut g2, depth, 20);
 
         assert_eq!(r1.best_move, r2.best_move, "best move differs");
         assert_eq!(r1.score, r2.score, "score differs");
@@ -346,11 +340,8 @@ mod tests {
         let mut g1 = Game::new();
         let mut g2 = g1.clone();
 
-        let mut tt_empty = TranspositionTable::new(0);
-        let mut tt = TranspositionTable::new(20);
-
-        let r1 = best_move(&mut g1, 4, &mut tt_empty);
-        let r2 = best_move(&mut g2, 4, &mut tt);
+        let r1 = best_move(&mut g1, 4, 0);
+        let r2 = best_move(&mut g2, 4, 20);
 
         assert_eq!(r1.best_move, r2.best_move);
         assert_eq!(r1.score, r2.score);
@@ -361,11 +352,8 @@ mod tests {
         let mut g1 = Game::new();
         let mut g2 = g1.clone();
 
-        let mut tt_empty = TranspositionTable::new(0);
-        let mut tt = TranspositionTable::new(20);
-
-        let r1 = best_move(&mut g1, 6, &mut tt_empty);
-        let r2 = best_move(&mut g2, 6, &mut tt);
+        let r1 = best_move(&mut g1, 6, 0);
+        let r2 = best_move(&mut g2, 6, 20);
 
         println!("no TT nodes: {}", r1.nodes_visited);
         println!("TT nodes: {}", r2.nodes_visited);
@@ -378,11 +366,8 @@ mod tests {
         let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
-        let mut tt_empty = TranspositionTable::new(0);
-        let mut tt = TranspositionTable::new(20);
-
-        let r1 = best_move(&mut g1, 4, &mut tt_empty);
-        let r2 = best_move(&mut g2, 4, &mut tt);
+        let r1 = best_move(&mut g1, 4, 0);
+        let r2 = best_move(&mut g2, 4, 20);
 
         println!("no TT best move: {}", r1.best_move.unwrap());
         println!("TT best move: {}", r2.best_move.unwrap());
