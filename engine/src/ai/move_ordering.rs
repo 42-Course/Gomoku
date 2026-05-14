@@ -77,17 +77,19 @@ fn pack_local_line(
     (me, opp, len)
 }
 
-/// Estimate the tactical strength of playing at `pos`.
+/// Estimate the tactical strength of playing at `pos` for `player`.
+///
+/// `player` must be the side that just placed the stone at `pos` — not
+/// `game.current_player()`, which after `play_pos` refers to the opponent.
+/// Passing the wrong perspective scores patterns for the opposing side and
+/// inverts the ordering.
 ///
 /// Used only for move ordering heuristics.
-fn evaluate_threat(game: &Game, pos: Pos) -> i32 {
-    let player = game.current_player();
-
+fn evaluate_threat(game: &Game, pos: Pos, player: Player) -> i32 {
     let mut score = 0;
 
     for dir in Direction::all() {
-        let (me, opp, len) =
-            pack_local_line(&game.board, pos, dir, 4, player);//I'm not sure if the radius should be 4 or 5
+        let (me, opp, len) = pack_local_line(&game.board, pos, dir, 4, player);
 
         let patterns = count_patterns(me as u32, opp as u32, len);
         score += patterns.fives as i32 * 100_000;
@@ -144,7 +146,7 @@ pub fn order_moves(
             let is_win = game.status == GameStatus::Win(current_player);
             let captures = game.capture_count(current_player) - before_capture;
 
-            score += evaluate_threat(game, mv);
+            score += evaluate_threat(game, mv, current_player);
 
             score += center_score(mv);
 
