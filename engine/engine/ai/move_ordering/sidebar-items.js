@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CAPTURE_BONUS","TT_MOVE_BONUS","WINNING_MOVE_BONUS"],"fn":["center_score","evaluate_threat","order_moves","pack_local_line"],"struct":["ScoredMove"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["eval","search"]};
+window.SIDEBAR_ITEMS = {"mod":["eval","move_ordering","search"]};
