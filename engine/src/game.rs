@@ -182,7 +182,7 @@ pub struct Game {
 
 /// Whether the game is still being played, has been won, or is drawn.
 #[allow(dead_code)]
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Debug)]
 pub enum GameStatus {
     /// More moves are legal.
     Ongoing,

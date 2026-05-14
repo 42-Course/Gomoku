@@ -176,6 +176,29 @@ fn negamax(
     (best_score, best_mv)
 }
 
+pub fn best_move_with_tt(
+    game: &mut Game,
+    depth: u32,
+    tt: &mut TranspositionTable,
+) -> SearchResult {
+    let mut nodes = 0u64;
+
+    let (score, mv) = negamax(
+        game,
+        depth,
+        i32::MIN + 1,
+        i32::MAX - 1,
+        tt,
+        &mut nodes,
+    );
+
+    SearchResult {
+        best_move: mv,
+        score,
+        nodes_visited: nodes,
+    }
+}
+
 /// Run alpha-beta and return the best move + score.
 ///
 /// The game is left untouched (every played move is undone).
@@ -187,11 +210,18 @@ fn negamax(
 /// let result = best_move(&mut game, 4, 20);
 /// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
 /// ```
-pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
-    let mut nodes = 0u64;
+pub fn best_move(
+    game: &mut Game,
+    depth: u32,
+    tt_size: usize,
+) -> SearchResult {
     let mut tt = TranspositionTable::new(tt_size);
-    let (score, mv) = negamax(game, depth, i32::MIN + 1, i32::MAX - 1, &mut tt, &mut nodes);
-    SearchResult { best_move: mv, score, nodes_visited: nodes }
+
+    best_move_with_tt(
+        game,
+        depth,
+        &mut tt,
+    )
 }
 
 #[cfg(test)]
