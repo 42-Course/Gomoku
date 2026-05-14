@@ -22,6 +22,7 @@
 #![allow(dead_code)]
 
 use crate::ai::eval::evaluate;
+use crate::ai::move_ordering::order_moves;
 use crate::game::{Game, GameStatus, Pos};
 use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
@@ -116,40 +117,22 @@ fn negamax(
         return (evaluate(game), None);
     }
 
-    let mut moves = game.generate_moves();
+    let tt_move = tt_entry.and_then(|entry| entry.best_move);
+    let moves = game.generate_moves();
 
-    if moves.is_empty() {
+    //sort the moves
+    let ordered_moves = order_moves(game, moves, tt_move);
+
+    if ordered_moves.is_empty() {
         // No legal continuations but game isn't flagged terminal — treat as
         // a quiet position and hand off to the evaluator.
         return (evaluate(game), None);
     }
 
-    if let Some(entry) = tt_entry {
-        if entry.depth >= depth as i32 {
-            if let Some(tt_mv) = entry.best_move {
-                if let Some(pos) = moves.iter().position(|&m| m == tt_mv) {
-                    // Search the previous best move first to maximize alpha-beta cutoffs.
-                    moves.swap(0, pos);
-                }
-            }
-        }
-    }
-
-    if let Some(entry) = tt_entry {
-        if entry.depth >= depth as i32 {
-            if let Some(tt_mv) = entry.best_move {
-                if let Some(pos) = moves.iter().position(|&m| m == tt_mv) {
-                    // Search the previous best move first to maximize alpha-beta cutoffs.
-                    moves.swap(0, pos);
-                }
-            }
-        }
-    }
-
     let mut best_score = i32::MIN + 1;
     let mut best_mv: Option<Pos> = None;
 
-    for mv in moves {
+    for mv in ordered_moves {
         // generate_moves already filters illegal placements, but play_move
         // is still the source of truth — skip defensively if it rejects.
         if game.play_pos(mv).is_err() {
