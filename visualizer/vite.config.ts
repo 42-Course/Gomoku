@@ -8,7 +8,13 @@ import path from 'node:path'
 // 403. Whitelist the sibling pkg/ folder explicitly.
 const enginePkgDir = path.resolve(__dirname, '../engine-wasm/pkg')
 
+// GitHub Pages serves the site under `/<repo>/`. Set the base at build time
+// via VITE_BASE so the same config can target a custom domain (base="/")
+// or a forked repo with a different name without touching the file.
+const base = process.env.VITE_BASE ?? '/'
+
 export default defineConfig({
+  base,
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {

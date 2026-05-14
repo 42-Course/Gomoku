@@ -1,0 +1,75 @@
+name: Wasm release
+
+# Publishes the engine-wasm `pkg/` as a downloadable tarball attached to a
+# GitHub Release. Triggered by tag pushes only (`v*` — e.g. `v0.2.0`) so
+# the release artifact tracks an explicit, immutable version.
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag to attach the release to (e.g. v0.2.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            engine
+            engine-wasm
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Resolve tag name
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "name=${{ inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "name=${GITHUB_REF##refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build engine-wasm package (web target)
+        run: ./build.sh web release
+        working-directory: engine-wasm
+
+      - name: Package pkg/ as a tarball
+        run: |
+          tar -czf "engine-wasm-${{ steps.tag.outputs.name }}.tgz" -C engine-wasm pkg
+          # Plain zip for browser users who don't have tar handy.
+          (cd engine-wasm && zip -r "../engine-wasm-${{ steps.tag.outputs.name }}.zip" pkg)
+
+      - name: Attach to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.tag.outputs.name }}
+          files: |
+            engine-wasm-${{ steps.tag.outputs.name }}.tgz
+            engine-wasm-${{ steps.tag.outputs.name }}.zip
+          body: |
+            `engine-wasm` package for `${{ steps.tag.outputs.name }}`.
+
+            Built with `wasm-pack --target web --release`. The tarball
+            extracts to `pkg/` — drop it into a frontend project and
+            consume as `engine-wasm` (see `engine-wasm/README.md`).
+          fail_on_unmatched_files: true

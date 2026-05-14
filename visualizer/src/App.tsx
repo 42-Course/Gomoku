@@ -17,10 +17,14 @@ const queryClient = new QueryClient({
   },
 });
 
+// Vite injects BASE_URL from the `base` config field. Stripping the
+// trailing slash matches react-router's basename convention.
+const ROUTER_BASENAME = import.meta.env.BASE_URL.replace(/\/$/, "");
+
 export default function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <BrowserRouter>
+      <BrowserRouter basename={ROUTER_BASENAME}>
         <Routes>
           <Route element={<Shell />}>
             <Route index element={<Home />} />
