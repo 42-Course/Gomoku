@@ -25,6 +25,7 @@ __pycache__/
 
 # Build artifacts
 */target/
+target/
 
 # Cargo lock (optional rule)
 # Keep for binaries, ignore for libraries
