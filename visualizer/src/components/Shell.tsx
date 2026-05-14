@@ -5,7 +5,6 @@ import {
   ListOrdered,
   FlaskConical,
   Github,
-  Play,
   User,
 } from "lucide-react";
 import { cn } from "@/lib/cn";
@@ -53,7 +52,6 @@ export function Shell() {
 
         <nav className="flex flex-col gap-1 px-3">
           <NavItem to="/" icon={Home} label="Home" end />
-          <NavItem to="/play" icon={Play} label="Play" />
           <NavItem to="/games" icon={ListOrdered} label="Games" />
           <NavItem to="/profile" icon={User} label="Profile" />
           <NavItem to="/lab" icon={FlaskConical} label="Lab" />

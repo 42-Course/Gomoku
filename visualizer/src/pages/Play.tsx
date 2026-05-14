@@ -1,24 +1,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import {
-  Bot,
-  Lightbulb,
-  RotateCcw,
-  Save,
-  Sparkles,
-  Users,
-  X,
-} from "lucide-react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Lightbulb, RotateCcw, Sparkles, X } from "lucide-react";
 import type {
   Analysis,
   Board as BoardGrid,
   Coord,
   Game,
-  GameMode,
   GameStatus,
   Move,
   Player,
 } from "@/api/types";
+import { queryKeys } from "@/api/client";
 import { BOARD_SIZE, boardAtMove, emptyBoard } from "@/api/fixtures";
 import { Board } from "@/components/Board";
 import { BoardSettings } from "@/components/BoardSettings";
@@ -26,29 +19,27 @@ import { AnalysisPanel } from "@/components/AnalysisPanel";
 import { EvalBar } from "@/components/EvalBar";
 import { useGameView } from "@/store/gameView";
 import { EngineClient } from "@/engine/EngineClient";
-import { saveLocalGame } from "@/storage/games";
-import { ensureIdentity } from "@/storage/identity";
 import {
-  clearLastPlay,
-  readLastPlay,
-  writeLastPlay,
-} from "@/storage/lastPlay";
+  createLocalGame,
+  getLocalGame,
+  saveLocalGame,
+} from "@/storage/games";
 import { coordLabel } from "@/lib/format";
 import { cn } from "@/lib/cn";
 
 const ANALYSIS_DEPTH = 4;
 
 /**
- * Live game page. Owns its own EngineClient so the review screen's shared
- * client doesn't get yanked out from under it. Mode comes from `?mode=`
- * (vsai|hotseat). The engine handle's state is always in sync with the
- * displayed position because we play into it move-by-move.
+ * Live game page. Driven by a `?id=<localGameId>` URL parameter — the
+ * Game record (created on Home) is the single source of truth. We replay
+ * its moves through a page-owned EngineClient on mount, then mutate the
+ * record on every move so the user can navigate away and resume cleanly.
  */
 export function Play() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const queryMode: GameMode = params.get("mode") === "hotseat" ? "hotseat" : "vsai";
-  const resumeRequested = params.get("resume") === "1";
+  const id = params.get("id");
+  const queryClient = useQueryClient();
 
   // One engine instance for the lifetime of this page.
   const engineRef = useRef<EngineClient | null>(null);
@@ -62,26 +53,18 @@ export function Play() {
   );
   const engine = engineRef.current;
 
-  // Snapshot of any persisted session, captured once on first render so a
-  // later write to localStorage doesn't re-trigger the resume effect.
-  const persistedRef = useRef(resumeRequested ? readLastPlay() : null);
-  const persisted = persistedRef.current;
+  const [game, setGame] = useState<Game | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [restored, setRestored] = useState(false);
 
-  // Mode is locked to whatever the page mounted with (or what was resumed).
-  // Switching mode mid-page would invalidate the engine state, so we just
-  // require the user to navigate via Home to flip it.
-  const [mode] = useState<GameMode>(persisted?.mode ?? queryMode);
   const [moves, setMoves] = useState<Move[]>([]);
   const [status, setStatus] = useState<GameStatus>({ kind: "ongoing" });
   const [captures, setCaptures] = useState<{ black: number; white: number }>({
     black: 0,
     white: 0,
   });
-  const [aiDepth, setAiDepth] = useState(persisted?.aiDepth ?? 4);
-  const [aiSide, setAiSide] = useState<Player>(persisted?.aiSide ?? "white");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [restored, setRestored] = useState<boolean>(!persisted);
 
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
@@ -95,42 +78,37 @@ export function Play() {
   const showEvalBar = useGameView((s) => s.showEvalBar);
   const toggleView = useGameView((s) => s.toggle);
 
-  const [savedId, setSavedId] = useState<string | null>(persisted?.savedId ?? null);
-
   /**
-   * In vs-AI, the engine moves so fast that if it's auto-fired the moment
-   * the page mounts (or after a New game), the user never has time to flip
-   * the AI side. The "started" gate keeps the AI silent until the user
-   * explicitly clicks Start, which is also when settings get locked.
-   */
-  const [started, setStarted] = useState<boolean>(
-    persisted?.started ?? (queryMode === "hotseat"),
-  );
-
-  /**
-   * Resume on mount: replay every persisted move through the engine so its
-   * internal state matches what the UI thinks is on the board. Runs exactly
-   * once, gated by `restored`.
+   * Load the Game record by id and replay its moves into the engine so
+   * the engine's internal state matches what we render. Runs once per
+   * page mount; if the id is missing or unknown we bail back to Home.
    */
   useEffect(() => {
-    if (restored) return;
+    if (!id) {
+      navigate("/", { replace: true });
+      return;
+    }
     let cancelled = false;
     (async () => {
-      if (!persisted) {
+      const g = await getLocalGame(id);
+      if (cancelled) return;
+      if (!g) {
+        setLoadError(`Game ${id} not found.`);
         setRestored(true);
         return;
       }
       try {
-        for (const m of persisted.moves) {
+        for (const m of g.moves) {
           await engine.play(m.coord.x, m.coord.y);
         }
         if (cancelled) return;
-        setMoves(persisted.moves);
-        setStatus(persisted.status);
-        setCaptures(persisted.captures);
-      } catch {
-        // Replay failed — wipe the bad record and start fresh.
-        clearLastPlay();
+        setGame(g);
+        setMoves(g.moves);
+        setStatus(g.status);
+        setCaptures(g.captures);
+      } catch (e) {
+        if (!cancelled)
+          setLoadError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setRestored(true);
       }
@@ -138,31 +116,7 @@ export function Play() {
     return () => {
       cancelled = true;
     };
-  }, [restored, persisted, engine]);
-
-  /**
-   * Persist the live session whenever it changes. Skipped while we're
-   * still restoring the previous session to avoid a clobber race.
-   */
-  useEffect(() => {
-    if (!restored) return;
-    if (moves.length === 0 && status.kind === "ongoing") {
-      // Empty board with no commitment — wipe rather than keep an empty record.
-      clearLastPlay();
-      return;
-    }
-    writeLastPlay({
-      mode,
-      aiDepth: mode === "vsai" ? aiDepth : undefined,
-      aiSide: mode === "vsai" ? aiSide : undefined,
-      moves,
-      status,
-      captures,
-      updatedAt: new Date().toISOString(),
-      started,
-      savedId: savedId ?? undefined,
-    });
-  }, [restored, mode, aiDepth, aiSide, moves, status, captures, started, savedId]);
+  }, [id, engine, navigate]);
 
   const board: BoardGrid = useMemo(
     () => (moves.length === 0 ? emptyBoard() : boardAtMove(moves, moves.length - 1)),
@@ -172,6 +126,26 @@ export function Play() {
   const currentPlayer: Player =
     moves.length === 0 ? "black" : moves[moves.length - 1].player === "black" ? "white" : "black";
   const isOver = status.kind !== "ongoing";
+
+  /**
+   * Persist the live game record back to IndexedDB whenever the displayed
+   * state changes. Skipped while we're still restoring from disk.
+   */
+  useEffect(() => {
+    if (!restored || !game) return;
+    const updated: Game = {
+      ...game,
+      moves,
+      moveCount: moves.length,
+      status,
+      captures,
+      updatedAt: new Date().toISOString(),
+      lastCoord: moves[moves.length - 1]?.coord,
+    };
+    void saveLocalGame(updated).then(() => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.games });
+    });
+  }, [restored, game, moves, status, captures, queryClient]);
 
   /**
    * Push one move into the engine and record it. `source` distinguishes
@@ -206,7 +180,7 @@ export function Play() {
       const { result, thinkMs } = await engine.bestMove(ANALYSIS_DEPTH);
       setAnalysis({
         id: `play_${Date.now()}`,
-        gameId: "play",
+        gameId: game?.id ?? "play",
         moveIndex: moves.length,
         chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
         rootScore: result.score,
@@ -219,30 +193,29 @@ export function Play() {
     } finally {
       setAnalysisLoading(false);
     }
-  }, [engine, moves.length]);
+  }, [engine, game?.id, moves.length]);
 
-  /** Ask the engine for a move suggestion (one-shot, no tree). */
+  /** Ask the engine for a move suggestion (one-shot, no panel update). */
   const runSuggest = useCallback(async () => {
     try {
-      const { result } = await engine.bestMove(ANALYSIS_DEPTH);
+      const { result } = await engine.bestMove(game?.aiDepth ?? ANALYSIS_DEPTH);
       if (result.move) setSuggestion({ x: result.move.x, y: result.move.y });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [engine]);
+  }, [engine, game?.aiDepth]);
 
   /**
    * Trigger an AI reply when it's the AI's turn. Refreshes analysis
    * afterwards if auto-analyze is on.
    */
   const triggerAiTurnIfNeeded = useCallback(async () => {
-    if (mode !== "vsai" || isOver) return;
-    if (!started) return;
-    if (currentPlayer !== aiSide) return;
+    if (!game || game.mode !== "vsai" || isOver) return;
+    if (currentPlayer !== game.aiSide) return;
     setBusy(true);
     try {
       const t0 = performance.now();
-      const { result } = await engine.bestMove(aiDepth);
+      const { result } = await engine.bestMove(game.aiDepth ?? ANALYSIS_DEPTH);
       const elapsed = performance.now() - t0;
       if (result.move) {
         await playMove(result.move.x, result.move.y, "ai", elapsed);
@@ -252,13 +225,14 @@ export function Play() {
     } finally {
       setBusy(false);
     }
-  }, [aiDepth, aiSide, currentPlayer, engine, isOver, mode, playMove]);
+  }, [currentPlayer, engine, game, isOver, playMove]);
 
   // After every move settles, optionally auto-analyze and pump the AI turn.
   useEffect(() => {
+    if (!restored) return;
     setSuggestion(null);
     if (isOver) return;
-    if (mode === "vsai" && started && currentPlayer === aiSide && !busy) {
+    if (game?.mode === "vsai" && currentPlayer === game.aiSide && !busy) {
       void triggerAiTurnIfNeeded();
       return;
     }
@@ -267,22 +241,20 @@ export function Play() {
       setAnalysis(null);
     }
   }, [
+    restored,
     moves.length,
-    aiSide,
     autoAnalyze,
     busy,
     currentPlayer,
+    game,
     isOver,
-    mode,
     runAnalyze,
-    started,
     triggerAiTurnIfNeeded,
   ]);
 
   const onCellClick = async (c: Coord) => {
-    if (busy || isOver) return;
-    if (mode === "vsai" && !started) return;
-    if (mode === "vsai" && currentPlayer === aiSide) return;
+    if (busy || isOver || !game) return;
+    if (game.mode === "vsai" && currentPlayer === game.aiSide) return;
     setError(null);
     setBusy(true);
     try {
@@ -295,18 +267,18 @@ export function Play() {
   };
 
   const undo = async () => {
-    if (busy || moves.length === 0) return;
+    if (busy || moves.length === 0 || !game) return;
     setBusy(true);
     try {
       // In vsai, undo the AI reply *and* the human move so it's the
       // human's turn again — otherwise the AI would just replay.
-      const popCount = mode === "vsai" && moves.length >= 2 ? 2 : 1;
+      const popCount =
+        game.mode === "vsai" && moves.length >= 2 ? 2 : 1;
       for (let i = 0; i < popCount; i++) {
         await engine.undo();
       }
       setMoves((prev) => prev.slice(0, prev.length - popCount));
       setStatus({ kind: "ongoing" });
-      // captures: re-derive from the snapshot to stay honest.
       const snap = await engine.snapshot();
       setCaptures({ black: snap.captures[0], white: snap.captures[1] });
       setAnalysis(null);
@@ -317,76 +289,52 @@ export function Play() {
     }
   };
 
-  const newGame = async () => {
-    if (busy) return;
-    setBusy(true);
-    try {
-      await engine.reset();
-      setMoves([]);
-      setStatus({ kind: "ongoing" });
-      setCaptures({ black: 0, white: 0 });
-      setAnalysis(null);
-      setSuggestion(null);
-      setSavedId(null);
-      setStarted(mode === "hotseat");
-      clearLastPlay();
-    } finally {
-      setBusy(false);
-    }
-  };
-
   /**
-   * Persist the current session as a Game in IndexedDB. Returns the id so
-   * callers can navigate to the review screen for it (used by the
-   * "Save & analyze" banner).
+   * Start a new game with the same configuration as this one. The current
+   * game stays in IndexedDB exactly as it is (unfinished or finished); we
+   * just navigate to a freshly created record.
    */
-  const save = async (): Promise<string | null> => {
-    if (moves.length === 0) return null;
-    const me = await ensureIdentity();
-    const id = savedId ?? `local_${Date.now()}`;
-    const black = mode === "vsai" && aiSide === "black" ? `AI (depth ${aiDepth})` : me.displayName;
-    const white = mode === "vsai" && aiSide === "white" ? `AI (depth ${aiDepth})` : me.displayName;
-    const game: Game = {
-      id,
-      kind: "local",
-      mode,
-      title:
-        mode === "vsai"
-          ? `vs AI (depth ${aiDepth})`
-          : `Hot-seat · ${moves.length} moves`,
-      black,
-      white,
-      status,
-      moveCount: moves.length,
-      moves,
-      captures,
-      createdAt: new Date(savedId ? Date.now() - 1 : Date.now()).toISOString(),
-      updatedAt: new Date().toISOString(),
-      aiDepth: mode === "vsai" ? aiDepth : undefined,
-    };
-    await saveLocalGame(game);
-    setSavedId(id);
-    return id;
+  const newGame = async () => {
+    if (busy || !game) return;
+    const nextId = await createLocalGame({
+      mode: game.mode,
+      aiDepth: game.aiDepth,
+      aiSide: game.aiSide,
+    });
+    queryClient.invalidateQueries({ queryKey: queryKeys.games });
+    navigate(`/play?id=${nextId}`);
   };
 
-  /** Save and jump straight to the review screen. */
-  const saveAndAnalyze = async () => {
-    const id = await save();
-    if (id) navigate(`/games/${id}`);
-  };
+  if (loadError) {
+    return (
+      <div className="p-10 text-sm text-ink-muted">
+        {loadError}{" "}
+        <button
+          onClick={() => navigate("/")}
+          className="text-accent hover:underline"
+        >
+          Go home
+        </button>
+      </div>
+    );
+  }
+
+  if (!restored || !game) {
+    return <div className="p-10 text-sm text-ink-muted">Loading game…</div>;
+  }
 
   return (
     <div className="flex h-screen flex-col">
       <header className="flex items-center justify-between border-b border-border bg-bg-1 px-6 py-3">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={() => navigate("/")}
             className="text-ink-muted hover:text-ink-strong"
             aria-label="Back"
           >
             <X className="size-4" />
           </button>
-          <ModeBadge mode={mode} />
+          <GameHeader game={game} />
           <span className="text-xs text-ink-muted">
             captures {captures.black}–{captures.white}
           </span>
@@ -394,17 +342,6 @@ export function Play() {
         </div>
 
         <div className="flex items-center gap-2">
-          {mode === "vsai" && (
-            <DepthControl depth={aiDepth} setDepth={setAiDepth} disabled={busy || started} />
-          )}
-          {mode === "vsai" && (
-            <SideControl side={aiSide} setSide={setAiSide} disabled={busy || started} />
-          )}
-          {mode === "vsai" && !started && (
-            <Btn onClick={() => setStarted(true)} disabled={busy} active>
-              Start
-            </Btn>
-          )}
           <Btn onClick={runSuggest} disabled={busy || isOver}>
             <Lightbulb className="size-3.5" /> Suggest
           </Btn>
@@ -413,9 +350,6 @@ export function Play() {
           </Btn>
           <Btn onClick={undo} disabled={busy || moves.length === 0}>
             <RotateCcw className="size-3.5" /> Undo
-          </Btn>
-          <Btn onClick={save} disabled={moves.length === 0}>
-            <Save className="size-3.5" /> {savedId ? "Saved" : "Save"}
           </Btn>
           <Btn onClick={newGame} disabled={busy}>
             New
@@ -431,9 +365,6 @@ export function Play() {
 
       <div className="grid flex-1 grid-cols-[1fr_340px] gap-6 overflow-hidden p-6">
         <div className="flex flex-col gap-3 overflow-hidden">
-          {isOver && moves.length > 0 && !savedId && (
-            <GameOverBanner status={status} onSave={saveAndAnalyze} />
-          )}
           <div className="flex items-stretch gap-2">
             {showEvalBar && (
               <EvalBar
@@ -465,12 +396,10 @@ export function Play() {
             onToggleHoverGhost={() => toggleView("showHoverGhost")}
           />
           <TurnLine
-            mode={mode}
+            game={game}
             current={currentPlayer}
-            aiSide={aiSide}
             isOver={isOver}
             busy={busy}
-            started={started}
             moveCount={moves.length}
             suggestion={suggestion}
             hoveredCell={hoveredCell}
@@ -492,44 +421,17 @@ export function Play() {
   );
 }
 
-function GameOverBanner({
-  status,
-  onSave,
-}: {
-  status: GameStatus;
-  onSave: () => void;
-}) {
-  const verdict =
-    status.kind === "draw"
-      ? "Draw."
-      : status.kind === "win"
-        ? `${status.player === "black" ? "Black" : "White"} wins.`
-        : "";
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-md border border-accent/40 bg-accent/10 px-4 py-2.5 text-sm">
-      <div className="flex flex-col">
-        <span className="font-medium text-ink-strong">Game over · {verdict}</span>
-        <span className="text-xs text-ink-muted">
-          Save it to your library so you can review it move-by-move with full
-          analysis.
-        </span>
-      </div>
-      <button
-        onClick={onSave}
-        className="inline-flex items-center gap-1.5 rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-bg-0 transition-colors hover:bg-accent/85"
-      >
-        <Save className="size-3.5" /> Save & analyze
-      </button>
-    </div>
-  );
-}
-
-function ModeBadge({ mode }: { mode: GameMode }) {
-  const isAi = mode === "vsai";
+function GameHeader({ game }: { game: Game }) {
+  if (game.mode === "vsai") {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md bg-bg-2 px-2 py-1 text-xs text-ink-strong">
+        vs AI · depth {game.aiDepth} · AI plays {game.aiSide}
+      </span>
+    );
+  }
   return (
     <span className="inline-flex items-center gap-1.5 rounded-md bg-bg-2 px-2 py-1 text-xs text-ink-strong">
-      {isAi ? <Bot className="size-3.5" /> : <Users className="size-3.5" />}
-      {isAi ? "vs AI" : "hot-seat"}
+      hot-seat
     </span>
   );
 }
@@ -547,62 +449,6 @@ function StatusBadge({ status }: { status: GameStatus }) {
     <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs text-accent">
       {status.player} wins
     </span>
-  );
-}
-
-function DepthControl({
-  depth,
-  setDepth,
-  disabled,
-}: {
-  depth: number;
-  setDepth: (n: number) => void;
-  disabled: boolean;
-}) {
-  return (
-    <label className="flex items-center gap-1.5 rounded-md bg-bg-2 px-2 py-1 text-xs text-ink-muted">
-      depth
-      <input
-        type="number"
-        min={1}
-        max={6}
-        value={depth}
-        disabled={disabled}
-        onChange={(e) =>
-          setDepth(Math.max(1, Math.min(6, parseInt(e.target.value, 10) || 1)))
-        }
-        className="w-10 rounded bg-bg-1 px-1 font-mono text-ink-strong outline-none disabled:opacity-50"
-      />
-    </label>
-  );
-}
-
-function SideControl({
-  side,
-  setSide,
-  disabled,
-}: {
-  side: Player;
-  setSide: (p: Player) => void;
-  disabled: boolean;
-}) {
-  return (
-    <div className="flex items-center gap-1 rounded-md bg-bg-2 p-0.5 text-xs">
-      {(["black", "white"] as Player[]).map((p) => (
-        <button
-          key={p}
-          disabled={disabled}
-          onClick={() => setSide(p)}
-          className={cn(
-            "rounded px-2 py-0.5 transition-colors",
-            side === p ? "bg-bg-3 text-ink-strong" : "text-ink-muted",
-            disabled && "opacity-50",
-          )}
-        >
-          AI: {p}
-        </button>
-      ))}
-    </div>
   );
 }
 
@@ -628,32 +474,26 @@ function Btn({
 }
 
 function TurnLine({
-  mode,
+  game,
   current,
-  aiSide,
   isOver,
   busy,
-  started,
   moveCount,
   suggestion,
   hoveredCell,
 }: {
-  mode: GameMode;
+  game: Game;
   current: Player;
-  aiSide: Player;
   isOver: boolean;
   busy: boolean;
-  started: boolean;
   moveCount: number;
   suggestion: Coord | null;
   hoveredCell: Coord | null;
 }) {
   let label: string;
   if (isOver) label = "Game over";
-  else if (mode === "vsai" && !started)
-    label = "Pick a side and depth, then click Start";
-  else if (mode === "vsai" && current === aiSide)
-    label = busy ? "AI is thinking…" : `AI to move (${aiSide})`;
+  else if (game.mode === "vsai" && current === game.aiSide)
+    label = busy ? "AI is thinking…" : `AI to move (${game.aiSide})`;
   else label = `${current} to move`;
 
   return (
@@ -672,7 +512,7 @@ function TurnLine({
             suggest → {coordLabel(suggestion)}
           </span>
         )}
-        {!hoveredCell && !suggestion && moveCount === 0 && started && (
+        {!hoveredCell && !suggestion && moveCount === 0 && (
           <span className="text-ink-muted">
             Click any intersection. {BOARD_SIZE}×{BOARD_SIZE} board.
           </span>

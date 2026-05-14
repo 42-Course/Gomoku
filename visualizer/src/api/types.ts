@@ -58,6 +58,8 @@ export interface Game extends GameSummary {
   createdAt: string;
   /** Engine search depth (only meaningful for `vsai` games). */
   aiDepth?: number;
+  /** Which side the AI plays (only meaningful for `vsai` games). */
+  aiSide?: Player;
 }
 
 /**
