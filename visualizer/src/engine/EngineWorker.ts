@@ -57,20 +57,6 @@ self.addEventListener("message", async (ev: MessageEvent<Request>) => {
         reply({ id: req.id, ok: true, kind: "bestMove", result, thinkMs });
         return;
       }
-      case "bestMoveVerbose": {
-        const t0 = performance.now();
-        const { result, tree } = handle.bestMoveVerbose(req.depth);
-        const thinkMs = performance.now() - t0;
-        reply({
-          id: req.id,
-          ok: true,
-          kind: "bestMoveVerbose",
-          result,
-          tree,
-          thinkMs,
-        });
-        return;
-      }
     }
   } catch (e) {
     reply({ id: req.id, ok: false, error: e instanceof Error ? e.message : String(e) });

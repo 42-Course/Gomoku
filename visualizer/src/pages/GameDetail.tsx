@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArrowLeft, Circle, Clock } from "lucide-react";
-import { getAnalysis, getGame, getTree, queryKeys } from "@/api/client";
+import { getAnalysis, getGame, queryKeys } from "@/api/client";
 import { boardAtMove, emptyBoard } from "@/api/fixtures";
 import { Board } from "@/components/Board";
 import { BoardSettings } from "@/components/BoardSettings";
@@ -10,7 +10,6 @@ import { EvalBar } from "@/components/EvalBar";
 import { MoveTable } from "@/components/MoveTable";
 import { TimelineScrubber } from "@/components/TimelineScrubber";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
-import { TreeExplorer } from "@/components/TreeExplorer";
 import { useGameView } from "@/store/gameView";
 import { coordLabel, formatMs } from "@/lib/format";
 
@@ -27,17 +26,13 @@ export function GameDetail() {
   const selectedMoveIndex = useGameView((s) => s.selectedMoveIndex);
   const setSelected = useGameView((s) => s.setSelected);
   const step = useGameView((s) => s.step);
-  const showCandidates = useGameView((s) => s.showCandidates);
   const showLastMove = useGameView((s) => s.showLastMove);
-  const showPrincipalVariation = useGameView((s) => s.showPrincipalVariation);
   const showCoordinates = useGameView((s) => s.showCoordinates);
   const showCrosshair = useGameView((s) => s.showCrosshair);
   const showHoverGhost = useGameView((s) => s.showHoverGhost);
   const showEvalBar = useGameView((s) => s.showEvalBar);
   const autoAnalyze = useGameView((s) => s.autoAnalyze);
   const toggle = useGameView((s) => s.toggle);
-  const hoveredTreeCoord = useGameView((s) => s.hoveredTreeCoord);
-  const setHoveredTreeCoord = useGameView((s) => s.setHoveredTreeCoord);
   const [hoveredCell, setHoveredCell] = useState<{ x: number; y: number } | null>(null);
 
   /**
@@ -94,12 +89,6 @@ export function GameDetail() {
     enabled: analysisEnabled,
   });
 
-  const treeQuery = useQuery({
-    queryKey: queryKeys.tree(id, selectedMoveIndex),
-    queryFn: () => getTree(id, selectedMoveIndex),
-    enabled: analysisEnabled,
-  });
-
   /**
    * Trigger analysis for the current move. Marking it requested flips the
    * `enabled` predicate, which makes react-query fetch on the next render.
@@ -115,9 +104,6 @@ export function GameDetail() {
     });
     queryClient.invalidateQueries({
       queryKey: queryKeys.analysis(id, selectedMoveIndex),
-    });
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.tree(id, selectedMoveIndex),
     });
   };
 
@@ -179,12 +165,6 @@ export function GameDetail() {
                 board={board}
                 lastMove={selectedMove?.coord ?? null}
                 showLastMove={showLastMove}
-                candidates={analysisQuery.data?.candidates ?? []}
-                showCandidates={showCandidates && !!analysisQuery.data}
-                principalVariation={analysisQuery.data?.principalVariation ?? []}
-                showPrincipalVariation={
-                  showPrincipalVariation && !!analysisQuery.data
-                }
                 showCoordinates={showCoordinates}
                 showCrosshair={showCrosshair}
                 showHoverGhost={showHoverGhost}
@@ -195,7 +175,6 @@ export function GameDetail() {
                       : "black"
                     : "black"
                 }
-                highlightCoord={hoveredTreeCoord}
                 onHoverCell={setHoveredCell}
               />
             </div>
@@ -232,20 +211,9 @@ export function GameDetail() {
             analysis={analysisQuery.data}
             isLoading={analysisEnabled && analysisQuery.isFetching}
             canAnalyze={canAnalyze}
-            showCandidates={showCandidates}
-            showPrincipalVariation={showPrincipalVariation}
             autoAnalyze={autoAnalyze}
             onAnalyze={triggerAnalyze}
-            onToggleCandidates={() => toggle("showCandidates")}
-            onTogglePrincipalVariation={() =>
-              toggle("showPrincipalVariation")
-            }
             onToggleAutoAnalyze={() => toggle("autoAnalyze")}
-          />
-          <TreeExplorer
-            root={treeQuery.data}
-            isLoading={analysisEnabled && treeQuery.isFetching}
-            onHoverCoord={setHoveredTreeCoord}
           />
         </div>
       </div>

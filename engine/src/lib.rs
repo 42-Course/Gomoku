@@ -19,6 +19,7 @@
 //! | [`patterns`]     | Pure bit-twiddling pattern detection on packed lines.    |
 //! | [`game`]         | Rules: turns, captures, win, draw, double-three.         |
 //! | [`ai`]           | Negamax + alpha-beta with a heuristic evaluator.         |
+//! | [`transpose`]    | Fixed-size transposition table keyed by Zobrist hash.    |
 //! | [`zobrist`]      | Zobrist hash tables for incremental position hashing.    |
 //!
 //! ## Bitmap-driven design
@@ -35,16 +36,15 @@
 //!
 //! ## Search
 //!
-//! [`ai::search`] runs negamax with alpha-beta pruning. Two entry points
-//! share one recursive core through a generic `Observer`: the fast path
-//! ([`ai::best_move`]) uses a no-op observer that the compiler erases, while
-//! the verbose path ([`ai::best_move_verbose`]) builds a full search tree
-//! for the visualizer. The evaluator ([`ai::evaluate`]) scores positions
-//! from the side-to-move's perspective using the pattern tallies above.
+//! [`ai::search`] runs negamax with alpha-beta pruning and a transposition
+//! table keyed by the incrementally maintained Zobrist hash. The evaluator
+//! ([`ai::evaluate`]) scores positions from the side-to-move's perspective
+//! using the pattern tallies above.
 
 pub mod ai;
 pub mod board;
 pub mod constants;
 pub mod game;
 pub mod patterns;
+pub mod transpose;
 pub mod zobrist;

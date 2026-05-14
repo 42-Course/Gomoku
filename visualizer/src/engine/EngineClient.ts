@@ -7,14 +7,13 @@
  *
  * The worker holds *one* `GameHandle`, so callers must coordinate state.
  * For analyzing a saved game at move N, use `replay(moves, N)` to drive
- * the handle there before calling `bestMoveVerbose`.
+ * the handle there before calling `bestMove`.
  */
 
 import type {
   BestMoveDTO,
   GameStateDTO,
   PlayResultDTO,
-  SearchTreeDTO,
 } from "engine-wasm";
 import type { Request, Response } from "./messages";
 
@@ -87,16 +86,6 @@ export class EngineClient {
       kind: "bestMove",
       depth,
     }).then((r) => ({ result: r.result, thinkMs: r.thinkMs }));
-  }
-
-  bestMoveVerbose(
-    depth: number,
-  ): Promise<{ result: BestMoveDTO; tree: SearchTreeDTO; thinkMs: number }> {
-    return this.send<Extract<Response, { kind: "bestMoveVerbose"; ok: true }>>({
-      id: newId(),
-      kind: "bestMoveVerbose",
-      depth,
-    }).then((r) => ({ result: r.result, tree: r.tree, thinkMs: r.thinkMs }));
   }
 
   /**

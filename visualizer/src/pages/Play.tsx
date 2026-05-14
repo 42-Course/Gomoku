@@ -18,17 +18,14 @@ import type {
   GameStatus,
   Move,
   Player,
-  TreeNode,
 } from "@/api/types";
 import { BOARD_SIZE, boardAtMove, emptyBoard } from "@/api/fixtures";
 import { Board } from "@/components/Board";
 import { BoardSettings } from "@/components/BoardSettings";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
-import { TreeExplorer } from "@/components/TreeExplorer";
 import { EvalBar } from "@/components/EvalBar";
 import { useGameView } from "@/store/gameView";
 import { EngineClient } from "@/engine/EngineClient";
-import { flatTreeToNested, treeToAnalysis } from "@/engine/adapters";
 import { saveLocalGame } from "@/storage/games";
 import { ensureIdentity } from "@/storage/identity";
 import {
@@ -87,12 +84,8 @@ export function Play() {
   const [restored, setRestored] = useState<boolean>(!persisted);
 
   const [analysis, setAnalysis] = useState<Analysis | null>(null);
-  const [tree, setTree] = useState<TreeNode | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [autoAnalyze, setAutoAnalyze] = useState(false);
-  const [showCandidates, setShowCandidates] = useState(true);
-  const [showPV, setShowPV] = useState(true);
-  const [hoveredTreeCoord, setHoveredTreeCoord] = useState<Coord | null>(null);
   const [hoveredCell, setHoveredCell] = useState<Coord | null>(null);
   const [suggestion, setSuggestion] = useState<Coord | null>(null);
 
@@ -206,25 +199,21 @@ export function Play() {
     [currentPlayer, engine],
   );
 
-  /** Run a verbose search at the current position and update the panel. */
+  /** Run a search at the current position and update the panel. */
   const runAnalyze = useCallback(async () => {
     setAnalysisLoading(true);
     try {
-      const { result, tree: flat, thinkMs } = await engine.bestMoveVerbose(
-        ANALYSIS_DEPTH,
-      );
-      const a = treeToAnalysis({
+      const { result, thinkMs } = await engine.bestMove(ANALYSIS_DEPTH);
+      setAnalysis({
         id: `play_${Date.now()}`,
         gameId: "play",
         moveIndex: moves.length,
-        depth: ANALYSIS_DEPTH,
-        nodesVisited: result.nodes_visited,
-        thinkMs,
         chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
-        tree: flat,
+        rootScore: result.score,
+        thinkMs,
+        depth: ANALYSIS_DEPTH,
+        nodesVisited: Number(result.nodes_visited),
       });
-      setAnalysis(a);
-      setTree(flatTreeToNested(flat));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -276,7 +265,6 @@ export function Play() {
     if (autoAnalyze) void runAnalyze();
     else {
       setAnalysis(null);
-      setTree(null);
     }
   }, [
     moves.length,
@@ -322,7 +310,6 @@ export function Play() {
       const snap = await engine.snapshot();
       setCaptures({ black: snap.captures[0], white: snap.captures[1] });
       setAnalysis(null);
-      setTree(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -339,7 +326,6 @@ export function Play() {
       setStatus({ kind: "ongoing" });
       setCaptures({ black: 0, white: 0 });
       setAnalysis(null);
-      setTree(null);
       setSuggestion(null);
       setSavedId(null);
       setStarted(mode === "hotseat");
@@ -460,15 +446,11 @@ export function Play() {
                 board={board}
                 lastMove={lastMove?.coord ?? null}
                 showLastMove
-                candidates={analysis?.candidates ?? []}
-                showCandidates={showCandidates && !!analysis}
-                principalVariation={analysis?.principalVariation ?? []}
-                showPrincipalVariation={showPV && !!analysis}
                 showCoordinates={showCoordinates}
                 showCrosshair={showCrosshair}
                 showHoverGhost={showHoverGhost}
                 currentPlayer={currentPlayer}
-                highlightCoord={suggestion ?? hoveredTreeCoord}
+                highlightCoord={suggestion}
                 onCellClick={onCellClick}
                 onHoverCell={setHoveredCell}
               />
@@ -500,18 +482,9 @@ export function Play() {
             analysis={analysis}
             isLoading={analysisLoading}
             canAnalyze={true}
-            showCandidates={showCandidates}
-            showPrincipalVariation={showPV}
             autoAnalyze={autoAnalyze}
             onAnalyze={runAnalyze}
-            onToggleCandidates={() => setShowCandidates((v) => !v)}
-            onTogglePrincipalVariation={() => setShowPV((v) => !v)}
             onToggleAutoAnalyze={() => setAutoAnalyze((v) => !v)}
-          />
-          <TreeExplorer
-            root={tree}
-            isLoading={analysisLoading}
-            onHoverCoord={setHoveredTreeCoord}
           />
         </div>
       </div>

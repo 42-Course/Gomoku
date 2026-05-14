@@ -60,7 +60,6 @@ jank the main thread otherwise.
 | `handle.play(x, y)`             | `PlayResultDTO`       | Throws on rule violations (e.g. double three).     |
 | `handle.undo()`                 | `void`                | Throws if there's nothing to undo.                 |
 | `handle.bestMove(depth)`        | `BestMoveDTO`         | Game state unchanged on return.                    |
-| `handle.bestMoveVerbose(depth)` | `{ result, tree }`    | `tree` is flattened — see `tree.rs`.               |
 | `handle.snapshot()`             | `GameStateDTO`        | Read-only view for rendering.                      |
 
 DTOs are derived via `tsify`, so the generated `.d.ts` has real
@@ -72,6 +71,5 @@ DTOs are derived via `tsify`, so the generated `.d.ts` has real
 src/
 ├── lib.rs        — module wiring, panic hook
 ├── handle.rs     — GameHandle and #[wasm_bindgen] entry points
-├── dto.rs        — DTOs that cross the FFI boundary
-└── tree.rs       — flat search-tree representation for the visualizer
+└── dto.rs        — DTOs that cross the FFI boundary
 ```

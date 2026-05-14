@@ -3,15 +3,14 @@
  *
  * Game records (the move list, players, captures, timestamps) live in the
  * fixtures for now and will move to IndexedDB later — they're persisted
- * data, not engine output. Analyses and search trees, on the other hand,
- * are *recomputed on demand* by `engine-wasm`: we replay the saved game
- * up to the requested move and ask the engine for a verbose search.
+ * data, not engine output. Analyses, on the other hand, are *recomputed on
+ * demand* by `engine-wasm`: we replay the saved game up to the requested
+ * move and ask the engine for its best reply at that position.
  */
 
-import type { Analysis, Game, GameSummary, TreeNode } from "./types";
+import type { Analysis, Game, GameSummary } from "./types";
 import { getGameFixture, GAMES as FIXTURE_GAMES } from "./fixtures";
 import { getEngine } from "@/engine/EngineClient";
-import { flatTreeToNested, treeToAnalysis } from "@/engine/adapters";
 import {
   deleteLocalGame,
   getLocalGame,
@@ -70,13 +69,6 @@ export async function deleteGame(id: string): Promise<void> {
 }
 
 /**
- * Run a verbose search from the position *just before* `moveIndex`.
- *
- * That's the position the AI was facing when it chose `moves[moveIndex]`.
- * The engine doesn't know about move sources or game IDs — we replay the
- * saved game's coordinates to drive its handle to the right state.
- */
-/**
  * Replay the saved coords through the engine. May fail when a fixture move
  * violates Gomoku rules — fixtures are random walks, the engine is strict.
  * Returns true on success so callers can degrade gracefully.
@@ -94,7 +86,7 @@ async function replaySafely(
 }
 
 /**
- * Run a verbose search from the position *just before* `moveIndex`.
+ * Run a search from the position *just before* `moveIndex`.
  *
  * That's the position whoever-was-on-move was facing when they played
  * `moves[moveIndex]`. Works for AI moves (where it shows what the engine
@@ -113,34 +105,17 @@ export async function getAnalysis(
   const ok = await replaySafely(g.moves.map((m) => m.coord), moveIndex - 1);
   if (!ok) return null;
 
-  const { result, tree, thinkMs } = await getEngine().bestMoveVerbose(
-    ANALYSIS_DEPTH,
-  );
-  return treeToAnalysis({
+  const { result, thinkMs } = await getEngine().bestMove(ANALYSIS_DEPTH);
+  return {
     id: `a_${gameId}_${moveIndex}`,
     gameId,
     moveIndex,
-    depth: ANALYSIS_DEPTH,
-    nodesVisited: result.nodes_visited,
-    thinkMs,
     chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
-    tree,
-  });
-}
-
-export async function getTree(
-  gameId: string,
-  moveIndex: number,
-): Promise<TreeNode | null> {
-  if (moveIndex < 0) return null;
-  const g = await getGame(gameId);
-  if (!g.moves[moveIndex]) return null;
-
-  const ok = await replaySafely(g.moves.map((m) => m.coord), moveIndex - 1);
-  if (!ok) return null;
-
-  const { tree } = await getEngine().bestMoveVerbose(ANALYSIS_DEPTH);
-  return flatTreeToNested(tree);
+    rootScore: result.score,
+    thinkMs,
+    depth: ANALYSIS_DEPTH,
+    nodesVisited: Number(result.nodes_visited),
+  };
 }
 
 export const queryKeys = {
@@ -149,6 +124,4 @@ export const queryKeys = {
   game: (id: string) => ["game", id] as const,
   analysis: (gameId: string, moveIndex: number) =>
     ["analysis", gameId, moveIndex] as const,
-  tree: (gameId: string, moveIndex: number) =>
-    ["tree", gameId, moveIndex] as const,
 };

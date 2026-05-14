@@ -14,7 +14,7 @@
 //! how that interacts with pattern recognition.
 
 use crate::constants::{BOARD_SIZE, BOARD_SIZE_I, CELL_COUNT};
-use crate::game::{Cell, Player};
+use crate::game::{Cell, Player, Pos};
 const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 
 /// One player's stones, stored as a bitmap with one bit per cell.
@@ -22,8 +22,15 @@ const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 /// Cells are flattened in row-major order: bit `y * BOARD_SIZE + x` is set
 /// when that cell holds a stone. Six `u64` words is enough for 19×19 = 361
 /// cells with room to spare.
+#[derive(Clone)]
 pub struct BitBoard {
     words: [u64; WORD_COUNT],
+}
+
+impl Default for BitBoard {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl BitBoard {
@@ -33,19 +40,24 @@ impl BitBoard {
             words: [0; 6]
         }
     }
-
+    /// Set the bit at `idx`.
+    #[inline]
     fn set(&mut self, idx: usize) {
         let w = idx / 64;
         let b = idx % 64;
         self.words[w] |= 1u64 << b;
     }
 
+    /// Clear the bit at `idx`.
+    #[inline]
     fn clear(&mut self, idx: usize) {
         let w = idx / 64;
         let b = idx % 64;
         self.words[w] &= !(1u64 << b);
     }
 
+    /// Returns whether the bit at `idx` is set.
+    #[inline]
     fn get(&self, idx: usize) -> bool {
         let w = idx / 64;
         let b = idx % 64;
@@ -53,26 +65,28 @@ impl BitBoard {
     }
 
     /// Map `(x, y)` to a flat bit index in row-major order.
+    #[allow(dead_code)]
+    #[inline]
     fn index(x: usize, y: usize) -> usize {
         y * BOARD_SIZE + x
     }
 
     /// Mark cell `(x, y)` as containing a stone.
-    pub fn place_stone(&mut self, x: usize, y: usize) {
-        let idx = Self::index(x, y);
-        self.set(idx);
+    #[inline]
+    pub fn place_stone(&mut self, pos: Pos) {
+        self.set(pos.idx());
     }
 
     /// Clear the stone at cell `(x, y)`.
-    pub fn remove_stone(&mut self, x: usize, y: usize) {
-        let idx = Self::index(x, y);
-        self.clear(idx);
+    #[inline]
+    pub fn remove_stone(&mut self, pos: Pos) {
+        self.clear(pos.idx());
     }
 
     /// Whether cell `(x, y)` holds a stone.
-    pub fn is_occupied(&self, x: usize, y: usize) -> bool {
-        let idx = Self::index(x, y);
-        self.get(idx)
+    #[inline]
+    pub fn is_occupied(&self, pos: Pos) -> bool {
+        self.get(pos.idx())
     }
 
     /// Bitwise OR with another bitboard. Used to compute "any stone here".
@@ -90,8 +104,15 @@ impl BitBoard {
 /// The full game board: one [`BitBoard`] per player.
 ///
 /// Indexed `boards[player.idx()]`; black is index 0 and white is index 1.
+#[derive(Clone)]
 pub struct Board {
     boards: [BitBoard; 2],
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Board {
@@ -106,23 +127,27 @@ impl Board {
     ///
     /// No bounds or occupancy check is performed - callers should go
     /// through [`Board::empty_check`] first.
-    pub fn place_stone(&mut self, x: usize, y: usize, player: Player) {
-        self.boards[player.idx()].place_stone(x, y);
+    #[inline]
+    pub fn place_stone(&mut self, pos: Pos, player: Player) {
+        self.boards[player.idx()].place_stone(pos);
     }
 
     /// Remove `player`'s stone at `(x, y)`. Used by undo and capture.
-    pub fn remove_stone(&mut self, x: usize, y: usize, player: Player) {
-        self.boards[player.idx()].remove_stone(x, y);
+    #[inline]
+    pub fn remove_stone(&mut self, pos: Pos, player: Player) {
+        self.boards[player.idx()].remove_stone(pos);
     }
 
     /// Check if the given coordinate contains the player
-    pub fn has(&self, x: usize, y: usize, player: Player) -> bool {
-        self.boards[player.idx()].is_occupied(x, y)
+    #[inline]
+    pub fn has(&self, pos: Pos, player: Player) -> bool {
+        self.boards[player.idx()].is_occupied(pos)
     }
 
     /// Whether `(x, y)` is empty for *both* players.
-    pub fn is_empty(&self, x: usize, y: usize) -> bool {
-        !self.has(x, y, Player::Black) && !self.has(x, y, Player::White)
+    #[inline]
+    pub fn is_empty(&self, pos: Pos) -> bool {
+        !self.has(pos, Player::Black) && !self.has(pos, Player::White)
     }
 
     /// Validate that `(x, y)` is a legal placement target.
@@ -131,24 +156,40 @@ impl Board {
     ///
     /// - `"Out of bounds"` if `x` or `y` is outside `0..BOARD_SIZE`.
     /// - `"Cell already occupied"` if either player has a stone there.
-    pub fn empty_check(&self, x: usize, y: usize) -> Result<(), &'static str> {
-        if x >= BOARD_SIZE || y >= BOARD_SIZE {
+    pub fn empty_check(&self, pos: Pos) -> Result<(), &'static str> {
+        if pos.idx() >= CELL_COUNT {
             return Err("Out of bounds");
         }
 
-        if !self.is_empty(x, y) {
+        if !self.is_empty(pos) {
             return Err("Cell already occupied");
         }
+
         Ok(())
+    }
+
+    /// Look up the contents of cell `Pos`.
+    ///
+    /// Returns `Some(Player)` if a stone is present, `None` if empty.
+    pub fn cell_at(&self, pos: Pos) -> Cell {
+        if self.boards[Player::Black.idx()].is_occupied(pos) {
+            Some(Player::Black)
+        } else if self.boards[Player::White.idx()].is_occupied(pos) {
+            Some(Player::White)
+        } else {
+            None
+        }
     }
 
     /// Look up the contents of cell `(x, y)`.
     ///
     /// Returns `Some(Player)` if a stone is present, `None` if empty.
-    pub fn cell_at(&self, x: usize, y: usize) -> Cell {
-        if self.boards[Player::Black.idx()].is_occupied(x, y) {
+    #[allow(dead_code)]
+    pub fn cell_at_xy(&self, x: usize, y: usize) -> Cell {
+        let pos = Pos::from_xy(x, y);
+        if self.boards[Player::Black.idx()].is_occupied(pos) {
             Some(Player::Black)
-        } else if self.boards[Player::White.idx()].is_occupied(x, y) {
+        } else if self.boards[Player::White.idx()].is_occupied(pos) {
             Some(Player::White)
         } else {
             None
@@ -202,23 +243,38 @@ impl Board {
         max_len: u32,
         player: Player,
     ) -> (u32, u32, u32) {
-        let opponent = player.opponent();
+        let me_board = &self.boards[player.idx()];
+        let opp_board =
+            &self.boards[player.opponent().idx()];
+
         let mut me = 0u32;
         let mut opp = 0u32;
         let mut len = 0u32;
+
         let mut x = x0;
         let mut y = y0;
-        while len < max_len && (0..BOARD_SIZE_I).contains(&x) && (0..BOARD_SIZE_I).contains(&y) {
-            let (ux, uy) = (x as usize, y as usize);
-            if self.has(ux, uy, player) {
+
+        while len < max_len
+            && x >= 0
+            && y >= 0
+            && x < BOARD_SIZE_I
+            && y < BOARD_SIZE_I
+        {
+            let idx =
+                (y as usize) * BOARD_SIZE
+                + (x as usize);
+
+            if me_board.get(idx) {
                 me |= 1 << len;
-            } else if self.has(ux, uy, opponent) {
+            } else if opp_board.get(idx) {
                 opp |= 1 << len;
             }
+
             x += dx;
             y += dy;
             len += 1;
         }
+
         (me, opp, len)
     }
 
@@ -328,7 +384,8 @@ impl Board {
             let mut row_str = String::new();
 
             for x in 0..width {
-                let symbol = match self.cell_at(x, y) {
+                let pos = Pos::from_xy(x, y);
+                let symbol = match self.cell_at(pos) {
                     None => ".",
                     Some(Player::Black) => "X",
                     Some(Player::White) => "O",

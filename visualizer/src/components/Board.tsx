@@ -1,7 +1,6 @@
 import { useMemo, useState } from "react";
 import type {
   Board as BoardGrid,
-  CandidateMove,
   Coord,
   Player,
 } from "@/api/types";
@@ -11,12 +10,6 @@ interface BoardProps {
   board: BoardGrid;
   lastMove?: Coord | null;
   showLastMove?: boolean;
-  /** Root-level candidates surfaced by the engine (best→worst). */
-  candidates?: CandidateMove[];
-  showCandidates?: boolean;
-  /** Best-child chain from the root, in play order. */
-  principalVariation?: Coord[];
-  showPrincipalVariation?: boolean;
   /** A–T / 1–19 labels around the board edges. */
   showCoordinates?: boolean;
   /** Vertical + horizontal guide lines following the cursor. */
@@ -52,10 +45,6 @@ export function Board({
   board,
   lastMove,
   showLastMove = true,
-  candidates = [],
-  showCandidates = false,
-  principalVariation = [],
-  showPrincipalVariation = true,
   showCoordinates = true,
   showCrosshair = true,
   showHoverGhost = true,
@@ -243,55 +232,7 @@ export function Board({
           );
         })()}
 
-        {/* Candidate dots — engine root children ranked best→worst. */}
-        {showCandidates && candidates.length > 0 && (
-          <g>
-            {candidates.map((c, i) => {
-              const { cx, cy } = cellToPx(c.coord);
-              const fade = 1 - i / Math.max(1, candidates.length);
-              return (
-                <circle
-                  key={`c-${c.coord.x}-${c.coord.y}-${i}`}
-                  cx={cx}
-                  cy={cy}
-                  r={LINE * 0.28}
-                  fill="none"
-                  stroke="#629924"
-                  strokeOpacity={0.35 + fade * 0.55}
-                  strokeWidth={1.5}
-                  strokeDasharray={c.pruned ? "3 2" : undefined}
-                  pointerEvents="none"
-                />
-              );
-            })}
-          </g>
-        )}
-
-        {/* Principal variation arrows. */}
-        {showPrincipalVariation && principalVariation.length > 1 && (
-          <g pointerEvents="none">
-            {principalVariation.slice(0, -1).map((from, i) => {
-              const to = principalVariation[i + 1];
-              const a = cellToPx(from);
-              const b = cellToPx(to);
-              return (
-                <line
-                  key={`pv-${i}`}
-                  x1={a.cx}
-                  y1={a.cy}
-                  x2={b.cx}
-                  y2={b.cy}
-                  stroke="#d85000"
-                  strokeOpacity={0.55}
-                  strokeWidth={2}
-                  strokeDasharray="5 3"
-                />
-              );
-            })}
-          </g>
-        )}
-
-        {/* Highlight from tree hover or external suggestion. */}
+        {/* Highlight from external suggestion. */}
         {highlightCoord && (() => {
           const { cx, cy } = cellToPx(highlightCoord);
           return (

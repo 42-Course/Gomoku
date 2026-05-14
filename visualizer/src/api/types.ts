@@ -61,20 +61,12 @@ export interface Game extends GameSummary {
 }
 
 /**
- * One root-child of the search tree, surfaced as a "candidate move".
+ * Aggregate result of one search, shown in the analysis panel.
  *
- * Score is in the root mover's frame (already sign-flipped from the engine's
- * negamax convention). `subtreeNodes` is how many nodes the engine spent
- * exploring beneath this candidate.
+ * The engine only surfaces the chosen move, the root-side score, and the
+ * search-cost counters now — the verbose tree / candidate breakdown used to
+ * live here but was removed along with the engine's verbose search mode.
  */
-export interface CandidateMove {
-  coord: Coord;
-  score: number;
-  subtreeNodes: number;
-  pruned: boolean;
-}
-
-/** Aggregate result of one verbose search, ready for the analysis panel. */
 export interface Analysis {
   id: string;
   gameId: string;
@@ -84,28 +76,4 @@ export interface Analysis {
   thinkMs: number;
   depth: number;
   nodesVisited: number;
-  /** Top-level branches the search considered, ordered best→worst. */
-  candidates: CandidateMove[];
-  /** Best-child chain from root, in play order. */
-  principalVariation: Coord[];
-}
-
-/**
- * One node in the min-max search tree, post-flatten.
- *
- * `score` is normalized to the *root* side-to-move's perspective so siblings
- * across plies stay comparable. `alpha`/`beta` are the window the node was
- * called with (still in side-to-move frame — it's what the engine actually
- * used to prune). `pruned` is true when this node returned on a β-cutoff.
- */
-export interface TreeNode {
-  id: string;
-  coord: Coord;
-  player: Player;
-  score: number;
-  depth: number;
-  alpha: number;
-  beta: number;
-  pruned: boolean;
-  children: TreeNode[];
 }

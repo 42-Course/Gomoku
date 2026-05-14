@@ -11,9 +11,7 @@
 //! ```
 //!
 //! All boundary types are plain DTOs ([`crate::dto`]); the engine's
-//! internal types never cross the FFI. Search trees from
-//! [`GameHandle::best_move_verbose`] are flattened (see [`crate::tree`])
-//! so a depth-4 search round-trips as one array, not a recursive object.
+//! internal types never cross the FFI.
 //!
 //! ## Build
 //!
@@ -25,7 +23,6 @@
 
 pub mod dto;
 pub mod handle;
-pub mod tree;
 
 pub use handle::GameHandle;
 

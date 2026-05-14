@@ -21,7 +21,11 @@ use wasm_bindgen::prelude::*;
 use crate::dto::{
     BestMoveDTO, CellDTO, GameStateDTO, MoveDTO, PlayResultDTO, PlayerDTO,
 };
-use crate::tree::{flatten, SearchTreeDTO};
+
+/// Default transposition-table size passed to `ai::best_move`, in powers of
+/// two (so `2^20` entries). Picked to fit comfortably in a browser tab and
+/// to match the size the engine's own tests use.
+const TT_SIZE_POWER: usize = 20;
 
 /// A live Gomoku game, mutated in place by [`GameHandle::play`].
 #[wasm_bindgen]
@@ -64,12 +68,15 @@ impl GameHandle {
         let captured: Vec<MoveDTO> = last
             .captured
             .iter()
-            .map(|&(x, y)| MoveDTO { x: x as u32, y: y as u32 })
+            .map(|pos| {
+                let (x, y) = pos.to_xy();
+                MoveDTO { x: x as u32, y: y as u32 }
+            })
             .collect();
 
         let dto = PlayResultDTO {
             captured,
-            status: self.game.status.into(),
+            status: self.game.status.clone().into(),
             captures: [self.game.captures.0, self.game.captures.1],
         };
         dto.serialize(&js_serializer()).map_err(into_js_error)
@@ -82,42 +89,18 @@ impl GameHandle {
 
     /// Run alpha-beta to `depth` plies and return the recommendation.
     ///
-    /// The game state is unchanged on return.
+    /// The game state is unchanged on return. A fresh transposition table
+    /// is allocated per call — the engine's TT lifetime is one search.
     #[wasm_bindgen(js_name = bestMove)]
     pub fn best_move(&mut self, depth: u32) -> Result<JsValue, JsError> {
-        let result = ai::best_move(&mut self.game, depth);
+        let result = ai::best_move(&mut self.game, depth, TT_SIZE_POWER);
         let dto = BestMoveDTO {
-            r#move: result
-                .best_move
-                .map(|(x, y)| MoveDTO { x: x as u32, y: y as u32 }),
+            r#move: result.best_move.map(|pos| {
+                let (x, y) = pos.to_xy();
+                MoveDTO { x: x as u32, y: y as u32 }
+            }),
             score: result.score,
             nodes_visited: result.nodes_visited,
-        };
-        dto.serialize(&js_serializer()).map_err(into_js_error)
-    }
-
-    /// Like `bestMove`, plus a flattened search tree for the visualizer.
-    ///
-    /// Returns `{ result: BestMoveDTO, tree: SearchTreeDTO }`.
-    #[wasm_bindgen(js_name = bestMoveVerbose)]
-    pub fn best_move_verbose(&mut self, depth: u32) -> Result<JsValue, JsError> {
-        let (result, root) = ai::best_move_verbose(&mut self.game, depth);
-
-        #[derive(serde::Serialize)]
-        struct Verbose {
-            result: BestMoveDTO,
-            tree: SearchTreeDTO,
-        }
-
-        let dto = Verbose {
-            result: BestMoveDTO {
-                r#move: result
-                    .best_move
-                    .map(|(x, y)| MoveDTO { x: x as u32, y: y as u32 }),
-                score: result.score,
-                nodes_visited: result.nodes_visited,
-            },
-            tree: root.as_ref().map(flatten).unwrap_or_default(),
         };
         dto.serialize(&js_serializer()).map_err(into_js_error)
     }
@@ -128,13 +111,13 @@ impl GameHandle {
         let mut board = Vec::with_capacity(n * n);
         for y in 0..n {
             for x in 0..n {
-                board.push(CellDTO::from(self.game.board.cell_at(x, y)));
+                board.push(CellDTO::from(self.game.board.cell_at_xy(x, y)));
             }
         }
         let dto = GameStateDTO {
             board,
             board_size: n as u32,
-            status: self.game.status.into(),
+            status: self.game.status.clone().into(),
             current_player: PlayerDTO::from(self.game.current_player()),
             captures: [self.game.captures.0, self.game.captures.1],
             move_count: self.game.history.len() as u32,

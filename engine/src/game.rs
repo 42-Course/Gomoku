@@ -24,6 +24,7 @@
 use crate::constants::BOARD_SIZE;
 use crate::constants::BOARD_SIZE_I;
 use crate::board::Board;
+use crate::constants::CELL_COUNT;
 use crate::zobrist::ZOBRIST;
 
 /// Chebyshev radius used by [`Game::generate_moves`] to grow candidate
@@ -45,7 +46,7 @@ pub const MOVE_GEN_RADIUS: isize = 1;
 /// ```
 #[macro_export]
 macro_rules! play {
-    ($game:expr, $x:expr, $y:expr) => {{
+    ($game:expr, $x:expr, $y: expr) => {{
         let result = $game.play_move($x, $y);
         $game.print_board(true);
         result
@@ -82,7 +83,28 @@ pub enum Direction {
 }
 
 impl Direction {
+    #[inline]
+    pub fn offset(self) -> isize {
+        match self {
+            Direction::Horizontal => 1,
+            Direction::Vertical => BOARD_SIZE as isize,
+            Direction::Diagonal => BOARD_SIZE as isize + 1,
+            Direction::AntiDiagonal => BOARD_SIZE as isize - 1,
+        }
+    }
+
+    #[inline]
+    pub fn all() -> [Direction; 4] {
+        [
+            Direction::Horizontal,
+            Direction::Vertical,
+            Direction::Diagonal,
+            Direction::AntiDiagonal,
+        ]
+    }
+
     /// The unit `(dx, dy)` step for this direction.
+    #[inline]
     pub fn delta(self) -> (isize, isize) {
         match self {
             Direction::Horizontal => (1, 0),
@@ -96,6 +118,7 @@ impl Direction {
     ///
     /// Used by win and capture checks that need to scan every line through
     /// a given cell.
+    #[inline]
     pub fn all_directions() -> [(isize, isize); 4] {
         [
             Direction::Horizontal.delta(),   // (1, 0)
@@ -132,22 +155,10 @@ impl Player {
 #[allow(dead_code)]
 #[derive(Clone)]
 pub struct Move {
-    /// Column where the stone was placed.
-    pub x: usize,
-    /// Row where the stone was placed.
-    pub y: usize,
+    /// Position where the stone was placed.
+    pub pos: Pos,
     /// Coordinates of opponent stones captured by this move.
-    pub captured: Vec<(usize, usize)>,
-}
-
-impl std::fmt::Display for Move {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        // Write strictly the first element into the supplied output
-        // stream: `f`. Returns `fmt::Result` which indicates whether the
-        // operation succeeded or failed. Note that `write!` uses syntax which
-        // is very similar to `println!`.
-        write!(f, "[{}, {}]", self.x, self.y)
-    }
+    pub captured: Vec<Pos>,
 }
 
 /// The complete state of a Gomoku game.
@@ -155,6 +166,7 @@ impl std::fmt::Display for Move {
 /// All public fields are mutated in place by [`Game::play_move`] and
 /// [`Game::undo_move`]; nothing is reference-counted or cloned. The search
 /// uses make/unmake against a single `Game` rather than copying.
+#[derive(Clone)]
 pub struct Game {
     /// Stone placements.
     pub board: Board,
@@ -165,11 +177,12 @@ pub struct Game {
     /// Capture pair counts as `(black, white)`. Five pairs wins.
     pub captures: (u8, u8),
     /// Zobrist hash of the current game state (board, captures, side-to-move), updated incrementally for fast position lookup in search.
-    hash: u64,
+    pub hash: u64,
 }
 
 /// Whether the game is still being played, has been won, or is drawn.
 #[allow(dead_code)]
+#[derive(Clone, PartialEq)]
 pub enum GameStatus {
     /// More moves are legal.
     Ongoing,
@@ -181,7 +194,7 @@ pub enum GameStatus {
 
 /// Compact board position as a linear index (y * 19 + x).
 /// Used for fast indexing and hashing without passing (x, y) pairs.
-#[derive(Copy, Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq, Hash)]
 pub struct Pos(pub usize);
 
 impl Pos {
@@ -196,6 +209,62 @@ impl Pos {
     #[inline]
     pub fn to_xy(self) -> (usize, usize) {
         (self.0 % BOARD_SIZE, self.0 / BOARD_SIZE)
+    }
+
+    #[inline]
+    pub fn from_xy(x: usize, y: usize) -> Self {
+        Self(y * BOARD_SIZE + x)
+    }
+
+    #[inline]
+    pub fn offset(self, dir: Direction, step: isize) -> Option<Pos> {
+        let next = self.idx() as isize + dir.offset() * step;
+
+        if !(0..(CELL_COUNT) as isize).contains(&next) {
+            return None;
+        }
+
+        let next = Pos(next as usize);
+
+        if !self.is_valid_step(next, dir) {
+            return None;
+        }
+
+        Some(next)
+    }
+
+    fn is_valid_step(self, next: Pos, dir: Direction) -> bool {
+        let x1 = self.idx() % BOARD_SIZE;
+        let y1 = self.idx() / BOARD_SIZE;
+
+        let x2 = next.idx() % BOARD_SIZE;
+        let y2 = next.idx() / BOARD_SIZE;
+
+        match dir {
+            Direction::Horizontal => y1 == y2,
+            Direction::Vertical => x1 == x2,
+            Direction::Diagonal => {
+                x1.abs_diff(x2) == y1.abs_diff(y2)
+            }
+            Direction::AntiDiagonal => {
+                x1.abs_diff(x2) == y1.abs_diff(y2)
+            }
+        }
+    }
+}
+
+impl std::fmt::Display for Pos {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        let x = self.0 % BOARD_SIZE;
+        let y = self.0 / BOARD_SIZE;
+
+        write!(f, "[{}, {}]", x, y)
+    }
+}
+
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -252,6 +321,7 @@ impl Game {
     /// Whose move is the `move_index`-th move (zero-indexed).
     ///
     /// Even indices are Black, odd indices are White.
+    #[inline]
     pub fn player_at_move(&self, move_index: usize) -> Player {
         if move_index.is_multiple_of(2) {
             Player::Black
@@ -261,8 +331,44 @@ impl Game {
     }
 
     /// Whose turn it currently is. Derived from `history.len()`.
+    #[inline]
     pub fn current_player(&self) -> Player {
         self.player_at_move(self.history.len())
+    }
+
+    /// Number of capture pairs taken by `player`.
+    ///
+    /// Reaching 5 captured pairs wins the game.
+    #[inline]
+    pub fn capture_count(&self, player: Player) -> u8 {
+        match player {
+            Player::Black => self.captures.0,
+            Player::White => self.captures.1,
+        }
+    }
+
+    /// Place the current player's stone at `(x, y)`.
+    ///
+    /// This is a public coordinate-based wrapper around [`Game::play_pos`]
+    /// that validates bounds before converting to [`Pos`].
+    ///
+    /// # Errors
+    ///
+    /// Returns `"Out of bounds"` if `(x, y)` lies outside the board,
+    /// or any error propagated from [`Game::play_pos`].
+    pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
+        if x >= BOARD_SIZE || y >= BOARD_SIZE {
+            return Err("Out of bounds");
+        }
+        let pos = Pos::from_xy(x, y);
+        self.play_pos(pos)
+    }
+
+    /// Place the current player's stone at `Pos` and update the game state.
+    /// Zobrist hash of the current game state.
+    #[inline]
+    pub fn hash(&self) -> u64 {
+        self.hash
     }
 
     /// Place the current player's stone at `(x, y)` and update the game state.
@@ -287,18 +393,17 @@ impl Game {
     /// - `"Game already finished"` when called after a win or draw.
     /// - `"Double three is forbidden"` when the move would create two
     ///   simultaneous free threes.
-    pub fn play_move(&mut self, x: usize, y: usize) -> Result<(), &'static str> {
-        self.board.empty_check(x, y)?;
+    pub fn play_pos(&mut self, pos: Pos) -> Result<(), &'static str> {
+        self.board.empty_check(pos)?;
         if !matches!(self.status, GameStatus::Ongoing) {
             return Err("Game already finished");
         }
-        let pos = Pos(y * BOARD_SIZE + x);
-        let player = self.current_player();
+        let player= self.current_player();
 
-        self.board.place_stone(x, y, player);
+        self.board.place_stone(pos, player);
 
-        if self.count_free_threes(x, y) >= 2 {
-            self.board.remove_stone(x, y, player);
+        if self.count_free_threes(pos) >= 2 {
+            self.board.remove_stone(pos, player);
             return Err("Double three is forbidden");
         }
 
@@ -308,11 +413,10 @@ impl Game {
         self.hash_side(player.opponent());
 
         // apply captures
-        let captured = self.apply_captures(x, y);
+        let captured = self.apply_captures(pos);
 
-        for &(cx, cy) in &captured {
-            let pos = Pos(cy * BOARD_SIZE + cx);
-            self.hash_remove(pos, player.opponent());
+        for &capture in &captured {
+            self.hash_remove(capture, player.opponent());
         }
 
         // update capture count
@@ -333,8 +437,7 @@ impl Game {
         }
 
         self.history.push(Move {
-            x,
-            y,
+            pos,
             captured,
         });
 
@@ -346,7 +449,7 @@ impl Game {
                 self.status = GameStatus::Win(Player::White);
             }
             _ => {
-                if self.check_win(x, y) {
+                if self.check_win(pos) {
                     self.status = GameStatus::Win(player)
                 } else if self.board.is_full() {
                     self.status = GameStatus::Draw;
@@ -357,7 +460,6 @@ impl Game {
 
         Ok(())
     }
-
 
     /// Reverse the most recent move, restoring captured stones and capture
     /// counts. Resets [`Game::status`] to [`GameStatus::Ongoing`].
@@ -375,40 +477,38 @@ impl Game {
     ///
     /// - `"No moves to undo"` if the history is empty.
     pub fn undo_move(&mut self) -> Result<(), String> {
-
         let last = self.history.pop().ok_or("No moves to undo")?;
         let last_player = self.current_player();
-        let last_opponent = self.current_player().opponent();
+        let last_opponent = last_player.opponent();
 
-        let pos = Pos(last.y * BOARD_SIZE + last.x);
-        self.board.remove_stone(last.x, last.y, last_player);
+        self.board.remove_stone(last.pos, last_player);
 
         // undo hash
-        self.hash_remove(pos, last_player);
+        self.hash_remove(last.pos, last_player);
+
         self.hash_side(last_opponent);
         self.hash_side(last_player);
 
-        for &(cx, cy) in &last.captured {
-            self.board.place_stone(cx, cy, last_opponent);
-            let pos = Pos(cy * BOARD_SIZE + cx);
-            self.hash_place(pos, last_opponent);
+        for &captured_pos in &last.captured {
+            self.board.place_stone(captured_pos, last_opponent);
+
+            self.hash_place(captured_pos, last_opponent);
         }
 
         let pairs = last.captured.len() / 2;
 
         match last_player {
             Player::Black => {
-                // hash the previous count out, and the new one in
                 self.hash_capture(last_player, self.captures.0);
                 self.captures.0 -= pairs as u8;
                 self.hash_capture(last_player, self.captures.0);
-            },
+            }
+
             Player::White => {
-                // hash the previous count out, and the new one in
                 self.hash_capture(last_player, self.captures.1);
                 self.captures.1 -= pairs as u8;
                 self.hash_capture(last_player, self.captures.1);
-            },
+            }
         }
 
         self.status = GameStatus::Ongoing;
@@ -423,12 +523,34 @@ impl Game {
             print!("\n-------\nTurn {:2}", self.history.len());
 
             if let Some(last_move) = self.history.last() {
-                print!(" | Move {}", last_move);
+                print!(" | Move {}", last_move.pos);
             }
 
             println!();
         }
         self.board.print_board();
+    }
+
+    fn count_direction(
+        &self,
+        start: Pos,
+        dir: Direction,
+        sign: isize,
+        player: Player,
+    ) -> usize {
+        let mut count = 0;
+        let mut current = start;
+
+        while let Some(next) = current.offset(dir, sign) {
+            if self.board.cell_at(next) != Some(player) {
+                break;
+            }
+
+            count += 1;
+            current = next;
+        }
+
+        count
     }
 
     /// Whether the stone at `(x, y)` participates in a 5+ run along any
@@ -438,32 +560,23 @@ impl Game {
     /// hands the detection off to [`crate::patterns::count_patterns`].
     /// Off-board cells fall outside the packed window, so the board edge
     /// acts as a wall — same convention used by [`Game::is_free_three`].
-    pub fn check_win(&self, x: usize, y: usize) -> bool {
-        let player = match self.board.cell_at(x, y) {
+    pub fn check_win(&self, pos: Pos) -> bool {
+        let player = match self.board.cell_at(pos) {
             Some(p) => p,
             None => return false,
         };
 
-        for (dx, dy) in Direction::all_directions() {
-            // Walk back up to 4 cells along (-dx, -dy) so a 5-run that
-            // ends at (x, y) still fits in the packed line.
-            let mut x0 = x as isize;
-            let mut y0 = y as isize;
-            for _ in 0..4 {
-                let nx = x0 - dx;
-                let ny = y0 - dy;
-                if !(0..BOARD_SIZE_I).contains(&nx) || !(0..BOARD_SIZE_I).contains(&ny) {
-                    break;
-                }
-                x0 = nx;
-                y0 = ny;
-            }
+        for dir in Direction::all() {
+            let mut count = 1;
 
-            let (me, opp, len) = self.board.pack_line(x0, y0, dx, dy, 9, player);
-            if crate::patterns::count_patterns(me, opp, len).fives > 0 {
+            count += self.count_direction(pos, dir, 1, player);
+            count += self.count_direction(pos, dir, -1, player);
+
+            if count >= 5 {
                 return true;
             }
         }
+
         false
     }
 
@@ -473,52 +586,46 @@ impl Game {
     /// `played, opp, opp, played`, the two opponent stones are removed.
     /// Returns the coordinates of the removed stones so the move can be
     /// undone later.
-    fn apply_captures(&mut self, x: usize, y: usize) -> Vec<(usize, usize)> {
+    fn apply_captures(&mut self, pos: Pos) -> Vec<Pos> {
         let mut captured = Vec::new();
+
         let player = self.current_player();
         let opponent = player.opponent();
 
-        for (dx, dy) in Direction::all_directions() {
-            for &(sx, sy) in &[(dx, dy), (-dx, -dy)] {
-                let x1 = x as isize + sx;
-                let y1 = y as isize + sy;
+        for dir in Direction::all() {
+            for step in [-1, 1] {
+                let p1 = pos.offset(dir, step);
+                let p2 = pos.offset(dir, step * 2);
+                let p3 = pos.offset(dir, step * 3);
 
-                let x2 = x as isize + 2 * sx;
-                let y2 = y as isize + 2 * sy;
-
-                let x3 = x as isize + 3 * sx;
-                let y3 = y as isize + 3 * sy;
-
-                if x3 < 0 || y3 < 0 || x3 >= BOARD_SIZE_I || y3 >= BOARD_SIZE_I {
+                let (Some(p1), Some(p2), Some(p3)) = (p1, p2, p3)
+                else {
                     continue;
-                }
+                };
 
-                let (x1, y1) = (x1 as usize, y1 as usize);
-                let (x2, y2) = (x2 as usize, y2 as usize);
-                let (x3, y3) = (x3 as usize, y3 as usize);
-
-                if self.board.cell_at(x1, y1) == Some(opponent)
-                    && self.board.cell_at(x2, y2) == Some(opponent)
-                    && self.board.cell_at(x3, y3) == Some(player)
+                if self.board.cell_at(p1) == Some(opponent)
+                    && self.board.cell_at(p2) == Some(opponent)
+                    && self.board.cell_at(p3) == Some(player)
                 {
-                    self.board.remove_stone(x1, y1, opponent);
-                    self.board.remove_stone(x2, y2, opponent);
+                    self.board.remove_stone(p1, opponent);
+                    self.board.remove_stone(p2, opponent);
 
-                    captured.push((x1, y1));
-                    captured.push((x2, y2));
+                    captured.push(p1);
+                    captured.push(p2);
                 }
             }
         }
+
         captured
     }
 
     /// How many of the four directions show a free three through `(x, y)`.
     /// Used to enforce the no-double-three rule.
-    fn count_free_threes(&self, x: usize, y: usize) -> u32 {
+    fn count_free_threes(&self, pos: Pos) -> u32 {
         let mut count = 0;
 
         for (dx, dy) in Direction::all_directions() {
-            if self.is_free_three(x, y, dx, dy) {
+            if self.is_free_three(pos, dx, dy) {
                 count += 1;
             }
         }
@@ -534,8 +641,8 @@ impl Game {
     /// Off-board cells are dropped from the window — they act as walls,
     /// so a 6-cell pattern that requires an empty endpoint won't match
     /// against the board edge.
-    fn is_free_three(&self, x: usize, y: usize, dx: isize, dy: isize) -> bool {
-        let player = match self.board.cell_at(x, y) {
+    fn is_free_three(&self, pos: Pos, dx: isize, dy: isize) -> bool {
+        let player = match self.board.cell_at(pos) {
             Some(p) => p,
             None => return false,
         };
@@ -543,13 +650,15 @@ impl Game {
         let mut me = 0u32;
         let mut opp = 0u32;
         let mut len = 0u32;
+        let (x, y) = pos.to_xy();
         for i in -4..=4 {
             let cx = x as isize + i * dx;
             let cy = y as isize + i * dy;
             if cx < 0 || cy < 0 || cx >= BOARD_SIZE_I || cy >= BOARD_SIZE_I {
                 continue;
             }
-            match self.board.cell_at(cx as usize, cy as usize) {
+            let check_pos = Pos::from_xy(cx as usize, cy as usize);
+            match self.board.cell_at(check_pos) {
                 Some(p) if p == player => me |= 1 << len,
                 Some(_) => opp |= 1 << len,
                 None => {}
@@ -565,14 +674,19 @@ impl Game {
     /// Probes by temporarily placing the stone, counting the free threes
     /// it creates, and undoing the placement. Used as the legality filter
     /// in [`Game::generate_moves`].
-    fn is_valid_move(&mut self, x: usize, y:usize) -> bool {
-        if !self.board.is_empty(x, y) { return false; }
+    fn is_valid_move(&mut self, pos: Pos) -> bool {
+        if !self.board.is_empty(pos) {
+            return false;
+        }
 
         let player = self.current_player();
-        self.board.place_stone(x, y, player);
 
-        let valid = self.count_free_threes(x, y) < 2;
-        self.board.remove_stone(x, y, player);
+        self.board.place_stone(pos, player);
+
+        let valid = self.count_free_threes(pos) < 2;
+
+        self.board.remove_stone(pos, player);
+
         valid
     }
 
@@ -582,53 +696,65 @@ impl Game {
     /// game at the center. Otherwise returns every empty cell within
     /// [`MOVE_GEN_RADIUS`] of an existing stone that passes
     /// [`Game::is_valid_move`] (i.e. doesn't create a double three).
-    pub fn generate_moves(&mut self) -> Vec<(usize, usize)> {
+    pub fn generate_moves(&mut self) -> Vec<Pos> {
         use std::collections::HashSet;
 
         if self.history.is_empty() {
-            return vec![(9, 9)];
+            return vec![Pos::from_xy(9, 9)];
         }
 
         let mut candidates = HashSet::new();
 
-        for y in 0..BOARD_SIZE {
-            for x in 0..BOARD_SIZE {
-                if self.board.is_empty(x, y) {
-                    continue;
-                }
+        for idx in 0..CELL_COUNT {
+            let pos = Pos(idx);
 
-                for dy in -MOVE_GEN_RADIUS..=MOVE_GEN_RADIUS {
-                    for dx in -MOVE_GEN_RADIUS..=MOVE_GEN_RADIUS {
-                        if dx == 0 && dy == 0 {
-                            continue;
-                        }
+            if self.board.is_empty(pos) {
+                continue;
+            }
 
-                        let nx = x as isize + dx;
-                        let ny = y as isize + dy;
+            let (x, y) = pos.to_xy();
 
-                        if nx < 0 || ny < 0 || nx >= BOARD_SIZE_I || ny >= BOARD_SIZE_I {
-                            continue;
-                        }
+            let x = x as isize;
+            let y = y as isize;
 
-                        let nx = nx as usize;
-                        let ny = ny as usize;
-
-                        if !self.board.is_empty(nx, ny) {
-                            continue;
-                        }
-
-                        candidates.insert((nx, ny));
+            for dy in -MOVE_GEN_RADIUS..=MOVE_GEN_RADIUS {
+                for dx in -MOVE_GEN_RADIUS..=MOVE_GEN_RADIUS {
+                    if dx == 0 && dy == 0 {
+                        continue;
                     }
+
+                    let nx = x + dx;
+                    let ny = y + dy;
+
+                    if nx < 0
+                        || ny < 0
+                        || nx >= BOARD_SIZE_I
+                        || ny >= BOARD_SIZE_I
+                    {
+                        continue;
+                    }
+
+                    let candidate =
+                        Pos::from_xy(nx as usize, ny as usize);
+
+                    if !self.board.is_empty(candidate) {
+                        continue;
+                    }
+
+                    candidates.insert(candidate);
                 }
             }
         }
+
         let mut moves = Vec::new();
 
-        for (x, y) in candidates {
-            if self.is_valid_move(x, y) {
-                moves.push((x, y));
+        for pos in candidates {
+            if self.is_valid_move(pos) {
+                moves.push(pos);
             }
         }
+
+        moves.sort_unstable_by_key(|p| p.idx());
         moves
     }
 }
@@ -670,8 +796,8 @@ fn test_capture_simple() {
 
     play!(game, 3, 0).unwrap(); // X → capture
 
-    assert_eq!(game.board.cell_at(1, 0), None);
-    assert_eq!(game.board.cell_at(2, 0), None);
+    assert_eq!(game.board.cell_at_xy(1, 0), None);
+    assert_eq!(game.board.cell_at_xy(2, 0), None);
 }
 #[test]
 fn test_double_capture() {
@@ -690,10 +816,10 @@ fn test_double_capture() {
 
     play!(game, 3, 0).unwrap(); // X → should capture both pairs
 
-    assert_eq!(game.board.cell_at(1, 0), None);
-    assert_eq!(game.board.cell_at(2, 0), None);
-    assert_eq!(game.board.cell_at(4, 0), None);
-    assert_eq!(game.board.cell_at(5, 0), None);
+    assert_eq!(game.board.cell_at_xy(1, 0), None);
+    assert_eq!(game.board.cell_at_xy(2, 0), None);
+    assert_eq!(game.board.cell_at_xy(4, 0), None);
+    assert_eq!(game.board.cell_at_xy(5, 0), None);
 }
 
 #[test]
@@ -761,7 +887,7 @@ fn test_generate_moves_empty_board() {
 
     let moves = game.generate_moves();
 
-    assert_eq!(moves, vec![(9, 9)]);
+    assert_eq!(moves, vec![Pos::from_xy(9, 9)]);
 }
 
 #[test]
@@ -772,10 +898,10 @@ fn test_generate_moves_near_single_stone() {
 
     let moves = game.generate_moves();
 
-    assert!(moves.contains(&(8, 8)));
-    assert!(moves.contains(&(9, 8)));
-    assert!(moves.contains(&(10, 10)));
-    assert!(!moves.contains(&(0, 0)));
+    assert!(moves.contains(&Pos::from_xy(8, 8)));
+    assert!(moves.contains(&Pos::from_xy(9, 8)));
+    assert!(moves.contains(&Pos::from_xy(10, 10)));
+    assert!(!moves.contains(&Pos::from_xy(0, 0)));
 }
 
 #[test]
@@ -800,7 +926,7 @@ fn test_undo_simple_move() {
     game.undo_move().unwrap();
     game.print_board(true);
 
-    assert_eq!(game.board.cell_at(9, 9), None);
+    assert_eq!(game.board.cell_at_xy(9, 9), None);
     assert_eq!(game.history.len(), 0);
 }
 
@@ -819,8 +945,8 @@ fn test_undo_capture() {
     game.print_board(true);
 
     // stones should be restored
-    assert_eq!(game.board.cell_at(1, 0), Some(Player::White));
-    assert_eq!(game.board.cell_at(2, 0), Some(Player::White));
+    assert_eq!(game.board.cell_at_xy(1, 0), Some(Player::White));
+    assert_eq!(game.board.cell_at_xy(2, 0), Some(Player::White));
 }
 
 #[test]
@@ -833,7 +959,7 @@ fn test_undo_simple_move_hash() {
     game.undo_move().unwrap();
 
     assert_eq!(game.hash, h);
-    assert_eq!(game.board.cell_at(9, 9), None);
+    assert_eq!(game.board.cell_at_xy(9, 9), None);
     assert_eq!(game.history.len(), 0);
 }
 
@@ -854,8 +980,8 @@ fn test_undo_capture_hash() {
     assert_eq!(game.hash, h);
 
     // stones restored
-    assert_eq!(game.board.cell_at(1, 0), Some(Player::White));
-    assert_eq!(game.board.cell_at(2, 0), Some(Player::White));
+    assert_eq!(game.board.cell_at_xy(1, 0), Some(Player::White));
+    assert_eq!(game.board.cell_at_xy(2, 0), Some(Player::White));
 }
 
 #[test]
