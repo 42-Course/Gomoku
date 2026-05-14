@@ -182,7 +182,7 @@ pub struct Game {
 
 /// Whether the game is still being played, has been won, or is drawn.
 #[allow(dead_code)]
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub enum GameStatus {
     /// More moves are legal.
     Ongoing,
@@ -315,6 +315,7 @@ impl Game {
     /// Whose move is the `move_index`-th move (zero-indexed).
     ///
     /// Even indices are Black, odd indices are White.
+    #[inline]
     pub fn player_at_move(&self, move_index: usize) -> Player {
         if move_index.is_multiple_of(2) {
             Player::Black
@@ -324,8 +325,20 @@ impl Game {
     }
 
     /// Whose turn it currently is. Derived from `history.len()`.
+    #[inline]
     pub fn current_player(&self) -> Player {
         self.player_at_move(self.history.len())
+    }
+
+    /// Number of capture pairs taken by `player`.
+    ///
+    /// Reaching 5 captured pairs wins the game.
+    #[inline]
+    pub fn capture_count(&self, player: Player) -> u8 {
+        match player {
+            Player::Black => self.captures.0,
+            Player::White => self.captures.1,
+        }
     }
 
     /// Place the current player's stone at `(x, y)`.
@@ -736,7 +749,6 @@ impl Game {
         }
 
         moves.sort_unstable_by_key(|p| p.idx());
-
         moves
     }
 }
