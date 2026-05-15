@@ -2,7 +2,7 @@ name: Visualizer
 
 on:
   push:
-    branches: [main]
+    branches: [staging]
     paths:
       - "visualizer/**"
       - "engine/**"
