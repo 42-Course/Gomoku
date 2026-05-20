@@ -21,6 +21,7 @@
 //! [`MOVE_GEN_RADIUS`] of an existing stone (so the search doesn't waste
 //! time on isolated points). The search calls this directly.
 
+use crate::board::BitBoard;
 use crate::constants::BOARD_SIZE;
 use crate::constants::BOARD_SIZE_I;
 use crate::board::Board;
@@ -90,6 +91,48 @@ impl Direction {
             Direction::Vertical => BOARD_SIZE as isize,
             Direction::Diagonal => BOARD_SIZE as isize + 1,
             Direction::AntiDiagonal => BOARD_SIZE as isize - 1,
+        }
+    }
+
+    /// Shift the bitboard one cell forward along this direction.
+    #[inline]
+    pub fn forward(
+        self,
+        bits: BitBoard,
+    ) -> BitBoard {
+        match self {
+            Direction::Horizontal =>
+                bits.east(),
+
+            Direction::Vertical =>
+                bits.south(),
+
+            Direction::Diagonal =>
+                bits.south_east(),
+
+            Direction::AntiDiagonal =>
+                bits.south_west(),
+        }
+    }
+
+    /// Shift the bitboard one cell backward along this direction.
+    #[inline]
+    pub fn backward(
+        self,
+        bits: BitBoard,
+    ) -> BitBoard {
+        match self {
+            Direction::Horizontal =>
+                bits.west(),
+
+            Direction::Vertical =>
+                bits.north(),
+
+            Direction::Diagonal =>
+                bits.north_west(),
+
+            Direction::AntiDiagonal =>
+                bits.north_east(),
         }
     }
 
@@ -443,7 +486,7 @@ impl Game {
                 self.status = GameStatus::Win(Player::White);
             }
             _ => {
-                if self.check_win(pos) {
+                if self.board.check_five(player) {
                     self.status = GameStatus::Win(player)
                 } else if self.board.is_full() {
                     self.status = GameStatus::Draw;
