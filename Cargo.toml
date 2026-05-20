@@ -1,0 +1,15 @@
+[workspace]
+resolver = "2"
+members = [
+    "engine",
+    "engine-wasm",
+]
+
+# Tighter optimization for both the native engine and the Wasm artifact.
+# wasm-pack overrides codegen-units / opt-level itself when it's the driver,
+# but these defaults still apply for `cargo build --release` from the
+# workspace root.
+[profile.release]
+codegen-units = 1
+lto = "fat"
+opt-level = 3

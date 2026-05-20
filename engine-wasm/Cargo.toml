@@ -1,0 +1,38 @@
+[package]
+name = "engine-wasm"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "WebAssembly bindings for the Gomoku engine."
+
+# `cdylib` is what wasm-pack consumes to produce a `.wasm` artifact.
+# `rlib` is kept so this crate can also be `cargo check`-ed and tested
+# on the native target without going through wasm-pack.
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+engine = { path = "../engine" }
+
+# Marshalling: serde for the data shapes, serde-wasm-bindgen for the
+# zero-allocation conversion to JsValue, tsify to derive matching TS
+# types from the Rust DTOs.
+serde = { version = "1", features = ["derive"] }
+serde-wasm-bindgen = "0.6"
+tsify = { version = "0.4", default-features = false, features = ["js"] }
+
+# JS bridge.
+wasm-bindgen = "0.2"
+
+# Surface Rust panics as JS console errors instead of silent aborts.
+# Pulled in only when the `wasm32` target is being compiled.
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+console_error_panic_hook = "0.1"
+
+[package.metadata.wasm-pack.profile.release]
+# wasm-opt disabled. Newer wasm-bindgen (0.2.120+) emits an externref
+# table that the JS loader grows at init time; the system wasm-opt 116
+# strips growability of that table and the loader crashes with
+# `RangeError: failed to grow table`. Re-enable once a wasm-opt with
+# proper reference-types support is on the build path.
+wasm-opt = false

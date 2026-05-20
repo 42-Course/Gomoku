@@ -1,0 +1,56 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Noto Sans", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Consolas, monospace;
+
+  /* Lichess-inspired dark palette */
+  --color-bg-0: #161512;
+  --color-bg-1: #1c1b17;
+  --color-bg-2: #26241e;
+  --color-bg-3: #302e27;
+  --color-border: #3d3a32;
+  --color-border-strong: #55514a;
+
+  --color-ink: #bababa;
+  --color-ink-strong: #e9e6e1;
+  --color-ink-muted: #8a867d;
+
+  --color-accent: #629924;   /* lichess green */
+  --color-accent-2: #d85000; /* warm orange for captures */
+  --color-danger: #dc322f;
+
+  --color-board: #d18b47;    /* wood */
+  --color-board-light: #e6b980;
+  --color-board-line: #4a2c16;
+
+  --color-stone-black: #1a1a1a;
+  --color-stone-white: #f1ebe3;
+
+  --color-heat-cold: #1e4f7a;
+  --color-heat-hot:  #d85000;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--color-bg-0);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: "ss01", "cv11";
+}
+
+::selection {
+  background: color-mix(in oklab, var(--color-accent) 35%, transparent);
+  color: var(--color-ink-strong);
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: var(--color-bg-0); }
+::-webkit-scrollbar-thumb { background: var(--color-bg-3); border-radius: 6px; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-border-strong); }

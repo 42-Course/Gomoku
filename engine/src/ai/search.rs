@@ -21,8 +21,11 @@
 
 #![allow(dead_code)]
 
+use std::sync::atomic::{AtomicU64, Ordering};
+
 use crate::ai::eval::evaluate;
 use crate::ai::move_ordering::order_moves;
+use crate::constants::BOARD_SIZE;
 use crate::game::{Game, GameStatus, Pos};
 use crate::transpose::{Bound, TTEntry, TranspositionTable};
 
@@ -188,10 +191,46 @@ fn negamax(
 /// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
 /// ```
 pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
+    // On the empty board every cell evaluates identically, so a normal
+    // search just picks the lowest-indexed candidate. Open from a random
+    // cell inside the central 3×3 instead — varied enough to make
+    // human-vs-AI games feel different without straying off the star points.
+    if game.history.is_empty() {
+        return SearchResult {
+            best_move: Some(random_central_opening()),
+            score: 0,
+            nodes_visited: 0,
+        };
+    }
+
     let mut nodes = 0u64;
     let mut tt = TranspositionTable::new(tt_size);
     let (score, mv) = negamax(game, depth, i32::MIN + 1, i32::MAX - 1, &mut tt, &mut nodes);
     SearchResult { best_move: mv, score, nodes_visited: nodes }
+}
+
+/// Pick a Pos uniformly from the 3×3 block centred on the board centre.
+///
+/// Uses a static LCG seeded once at startup: deterministic per process but
+/// stepped on every call, so consecutive openings differ. The engine has
+/// no other source of entropy (the `rand` crate isn't a dep and the wasm
+/// target makes pulling one in nontrivial), which is fine here — we only
+/// need varied output, not cryptographic randomness.
+fn random_central_opening() -> Pos {
+    static STATE: AtomicU64 = AtomicU64::new(0xCAFE_F00D_DEAD_BEEF);
+
+    // Numerical Recipes LCG constants — full 64-bit period.
+    let prev = STATE.load(Ordering::Relaxed);
+    let next = prev
+        .wrapping_mul(6364136223846793005)
+        .wrapping_add(1442695040888963407);
+    STATE.store(next, Ordering::Relaxed);
+
+    let pick = (next >> 32) % 9;
+    let dx = (pick % 3) as isize - 1;
+    let dy = (pick / 3) as isize - 1;
+    let centre = (BOARD_SIZE / 2) as isize;
+    Pos::from_xy((centre + dx) as usize, (centre + dy) as usize)
 }
 
 #[cfg(test)]
@@ -201,7 +240,11 @@ mod tests {
 
     #[test]
     fn depth_zero_returns_eval_and_no_move() {
+        // Empty-board calls now short-circuit; play one move so we hit the
+        // depth-0 leaf branch in negamax.
         let mut game = Game::new();
+        game.play_move(9, 9).unwrap();
+
         let result = best_move(&mut game, 0, 0);
         assert_eq!(result.best_move, None);
         assert_eq!(result.nodes_visited, 1);
@@ -211,8 +254,16 @@ mod tests {
     fn returns_a_legal_move_on_empty_board() {
         let mut game = Game::new();
         let result = best_move(&mut game, 1, 0);
-        // On an empty board generate_moves yields exactly (9, 9).
-        assert_eq!(result.best_move, Some(Pos::from_xy(9, 9)));
+        // The empty-board opening is randomised within the central 3×3 of
+        // the board, so the specific cell varies between runs — but it must
+        // be inside that block and the search reports zero nodes (short-cut).
+        let centre = (BOARD_SIZE / 2) as isize;
+        let mv = result.best_move.expect("opening must return a move");
+        let (x, y) = mv.to_xy();
+        let dx = (x as isize - centre).abs();
+        let dy = (y as isize - centre).abs();
+        assert!(dx <= 1 && dy <= 1, "opening {:?} must be within the central 3x3", (x, y));
+        assert_eq!(result.nodes_visited, 0, "empty-board opening should bypass search");
     }
 
     #[test]
@@ -320,7 +371,9 @@ mod tests {
 
     #[test]
     fn tt_does_not_change_best_move() {
-        let mut g1 = Game::new();
+        // Empty boards now short-circuit search, so the TT branch is
+        // never exercised from there. Seed a midgame position instead.
+        let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
         let r1 = best_move(&mut g1, 4, 0);
@@ -332,7 +385,7 @@ mod tests {
 
     #[test]
     fn tt_reduces_node_count() {
-        let mut g1 = Game::new();
+        let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
         let r1 = best_move(&mut g1, 6, 0);

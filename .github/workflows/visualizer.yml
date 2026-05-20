@@ -1,0 +1,80 @@
+name: Visualizer
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "visualizer/**"
+      - "engine/**"
+      - "engine-wasm/**"
+      - ".github/workflows/visualizer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# One Pages publish at a time so concurrent runs don't fight over gh-pages.
+# Shared with the engine-docs workflow (which uses `pages-engine`) by using
+# a different group — both deploy to gh-pages but they keep_files: true and
+# write to disjoint subtrees, so concurrent runs are safe enough.
+concurrency:
+  group: pages-visualizer
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          # engine and engine-wasm share a Cargo lockfile, so cache them together.
+          workspaces: |
+            engine
+            engine-wasm
+
+      - name: Install wasm-pack
+        uses: jetli/wasm-pack-action@v0.4.0
+        with:
+          version: latest
+
+      - name: Build engine-wasm package
+        run: ./build.sh web release
+        working-directory: engine-wasm
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install visualizer dependencies
+        # The visualizer depends on engine-wasm/pkg as a file: dep, so it must
+        # exist before this runs (handled by the wasm-pack step above).
+        # --frozen-lockfile mirrors `npm ci` semantics.
+        run: bun install --frozen-lockfile
+        working-directory: visualizer
+
+      - name: Build visualizer
+        env:
+          # Pages serves the site under `/<repo>/`. Tell Vite at build time
+          # so the asset URLs and router basename are correct.
+          VITE_BASE: /${{ github.event.repository.name }}/
+        run: bun run build
+        working-directory: visualizer
+
+      - name: Deploy to gh-pages root
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_branch: gh-pages
+          publish_dir: visualizer/dist
+          # Preserve /engine/ rustdoc (published by engine-docs.yml) and any
+          # other unrelated files already on the branch.
+          keep_files: true
+          commit_message: "viz: deploy ${{ github.sha }}"

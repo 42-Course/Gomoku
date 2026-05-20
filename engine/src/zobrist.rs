@@ -52,6 +52,12 @@ pub struct Zobrist {
     pub side: [u64; 2],
 }
 
+impl Default for Zobrist {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Zobrist {
     /// Initialize all Zobrist keys using a fixed seed.
     ///
