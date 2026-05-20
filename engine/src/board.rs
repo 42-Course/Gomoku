@@ -92,17 +92,6 @@ impl BitBoard {
     pub fn is_occupied(&self, pos: Pos) -> bool {
         self.get(pos.idx())
     }
-
-    /// Bitwise OR with another bitboard. Used to compute "any stone here".
-    fn or(&self, other: &Self) -> Self {
-        let mut out = Self::new();
-
-        for i in 0..WORD_COUNT {
-            out.words[i] = self.words[i] | other.words[i];
-        }
-
-        out
-    }
 }
 
 /// Bitwise OR between two bitboards.
@@ -358,7 +347,7 @@ impl Board {
 
     /// Whether every cell on the board is occupied (used to flag draws).
     pub fn is_full(&self) -> bool {
-        let occupied = self.boards[Player::Black.idx()].or(&self.boards[Player::White.idx()]);
+        let occupied = self.boards[Player::Black.idx()] | self.boards[Player::White.idx()];
         let w = BOARD_SIZE / 64;
         let b = BOARD_SIZE % 64;
 
