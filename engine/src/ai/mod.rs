@@ -14,6 +14,7 @@
 pub mod eval;
 pub mod search;
 pub mod move_ordering;
+pub mod iterative_deepening;
 
 #[allow(unused_imports)]
 pub use eval::evaluate;

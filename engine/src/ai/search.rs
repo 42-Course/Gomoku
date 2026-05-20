@@ -179,6 +179,29 @@ fn negamax(
     (best_score, best_mv)
 }
 
+pub fn best_move_with_tt(
+    game: &mut Game,
+    depth: u32,
+    tt: &mut TranspositionTable,
+) -> SearchResult {
+    let mut nodes = 0u64;
+
+    let (score, mv) = negamax(
+        game,
+        depth,
+        i32::MIN + 1,
+        i32::MAX - 1,
+        tt,
+        &mut nodes,
+    );
+
+    SearchResult {
+        best_move: mv,
+        score,
+        nodes_visited: nodes,
+    }
+}
+
 /// Run alpha-beta and return the best move + score.
 ///
 /// The game is left untouched (every played move is undone).
@@ -205,8 +228,12 @@ pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
 
     let mut nodes = 0u64;
     let mut tt = TranspositionTable::new(tt_size);
-    let (score, mv) = negamax(game, depth, i32::MIN + 1, i32::MAX - 1, &mut tt, &mut nodes);
-    SearchResult { best_move: mv, score, nodes_visited: nodes }
+
+    best_move_with_tt(
+        game,
+        depth,
+        &mut tt,
+    )
 }
 
 /// Pick a Pos uniformly from the 3×3 block centred on the board centre.
