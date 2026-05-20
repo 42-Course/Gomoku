@@ -105,6 +105,7 @@ impl BitBoard {
     }
 }
 
+/// Bitwise OR between two bitboards.
 impl BitOr for BitBoard {
     type Output = Self;
 
@@ -119,6 +120,7 @@ impl BitOr for BitBoard {
     }
 }
 
+/// In-place bitwise OR assignment.
 impl BitOrAssign for BitBoard {
     fn bitor_assign(&mut self, rhs: Self) {
         for i in 0..WORD_COUNT {
@@ -127,6 +129,7 @@ impl BitOrAssign for BitBoard {
     }
 }
 
+/// Bitwise AND between two bitboards.
 impl BitAnd for BitBoard {
     type Output = Self;
 
@@ -141,6 +144,7 @@ impl BitAnd for BitBoard {
     }
 }
 
+/// In-place bitwise AND assignment.
 impl BitAndAssign for BitBoard {
     fn bitand_assign(&mut self, rhs: Self) {
         for i in 0..WORD_COUNT {
@@ -149,6 +153,7 @@ impl BitAndAssign for BitBoard {
     }
 }
 
+/// Bitwise XOR between two bitboards.
 impl BitXor for BitBoard {
     type Output = Self;
 
@@ -164,6 +169,7 @@ impl BitXor for BitBoard {
     }
 }
 
+/// In-place bitwise XOR assignment.
 impl BitXorAssign for BitBoard {
     fn bitxor_assign(&mut self, rhs: Self) {
         for i in 0..WORD_COUNT {
@@ -173,6 +179,7 @@ impl BitXorAssign for BitBoard {
     }
 }
 
+/// Bitwise NOT with unused tail bits masked out.
 impl Not for BitBoard {
     type Output = Self;
 
@@ -195,6 +202,7 @@ impl Not for BitBoard {
     }
 }
 
+/// Raw left shift across the packed bitboard without edge masking.
 impl Shl<usize> for BitBoard {
     type Output = Self;
 
@@ -226,6 +234,7 @@ impl Shl<usize> for BitBoard {
     }
 }
 
+/// Raw right shift across the packed bitboard without edge masking.
 impl Shr<usize> for BitBoard {
     type Output = Self;
 
