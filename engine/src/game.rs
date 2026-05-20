@@ -262,6 +262,12 @@ impl std::fmt::Display for Pos {
     }
 }
 
+impl Default for Game {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[allow(dead_code)]
 impl Game {
     /// Start a new game with an empty board, Black to move.

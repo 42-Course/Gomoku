@@ -1,9 +1,14 @@
 //! # Gomoku engine
 //!
 //! A Gomoku (Five-in-a-Row, with captures and the no-double-three rule)
-//! engine: rules, search, and heuristic evaluation. The binary is currently
-//! a stub — every interesting piece is a library module and the public API
-//! lives behind [`ai::best_move`].
+//! engine: rules, search, and heuristic evaluation. Pure library — no
+//! binary, no I/O, no threads.
+//!
+//! Consumed by:
+//!
+//! - native callers via `[dependencies] engine`,
+//! - the browser visualizer through the `engine-wasm` crate, which wraps
+//!   this library in `wasm-bindgen` glue.
 //!
 //! ## Module map
 //!
@@ -14,6 +19,8 @@
 //! | [`patterns`]     | Pure bit-twiddling pattern detection on packed lines.    |
 //! | [`game`]         | Rules: turns, captures, win, draw, double-three.         |
 //! | [`ai`]           | Negamax + alpha-beta with a heuristic evaluator.         |
+//! | [`transpose`]    | Fixed-size transposition table keyed by Zobrist hash.    |
+//! | [`zobrist`]      | Zobrist hash tables for incremental position hashing.    |
 //!
 //! ## Bitmap-driven design
 //!
@@ -34,12 +41,10 @@
 //! ([`ai::evaluate`]) scores positions from the side-to-move's perspective
 //! using the pattern tallies above.
 
-mod ai;
-mod zobrist;
-mod transpose;
-mod board;
-mod constants;
-mod game;
-mod patterns;
-
-fn main() {}
+pub mod ai;
+pub mod board;
+pub mod constants;
+pub mod game;
+pub mod patterns;
+pub mod transpose;
+pub mod zobrist;

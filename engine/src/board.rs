@@ -27,6 +27,12 @@ pub struct BitBoard {
     words: [u64; WORD_COUNT],
 }
 
+impl Default for BitBoard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BitBoard {
     /// Create an empty bitboard.
     pub fn new() -> Self {
@@ -101,6 +107,12 @@ impl BitBoard {
 #[derive(Clone)]
 pub struct Board {
     boards: [BitBoard; 2],
+}
+
+impl Default for Board {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Board {
