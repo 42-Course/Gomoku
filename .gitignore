@@ -44,3 +44,7 @@ __pycache__/
 
 *.swp
 *.swo
+
+# External sibling directories
+/target
+/visualizer
