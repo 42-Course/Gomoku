@@ -12,7 +12,17 @@
 //! `u32` bitmasks `(me, opp)`. Off-the-board positions are zero in *both*
 //! masks, which makes them walls - see the [`crate::patterns`] module for
 //! how that interacts with pattern recognition.
-
+use std::ops::{
+    BitAnd,
+    BitAndAssign,
+    BitOr,
+    BitOrAssign,
+    BitXor,
+    BitXorAssign,
+    Not,
+    Shl,
+    Shr,
+};
 use crate::constants::{BOARD_SIZE, BOARD_SIZE_I, CELL_COUNT};
 use crate::game::{Cell, Player, Pos};
 const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
@@ -22,7 +32,7 @@ const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
 /// Cells are flattened in row-major order: bit `y * BOARD_SIZE + x` is set
 /// when that cell holds a stone. Six `u64` words is enough for 19×19 = 361
 /// cells with room to spare.
-#[derive(Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct BitBoard {
     words: [u64; WORD_COUNT],
 }
@@ -89,6 +99,159 @@ impl BitBoard {
 
         for i in 0..WORD_COUNT {
             out.words[i] = self.words[i] | other.words[i];
+        }
+
+        out
+    }
+}
+
+impl BitOr for BitBoard {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] = self.words[i] | rhs.words[i];
+        }
+
+        out
+    }
+}
+
+impl BitOrAssign for BitBoard {
+    fn bitor_assign(&mut self, rhs: Self) {
+        for i in 0..WORD_COUNT {
+            self.words[i] |= rhs.words[i];
+        }
+    }
+}
+
+impl BitAnd for BitBoard {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] = self.words[i] & rhs.words[i];
+        }
+
+        out
+    }
+}
+
+impl BitAndAssign for BitBoard {
+    fn bitand_assign(&mut self, rhs: Self) {
+        for i in 0..WORD_COUNT {
+            self.words[i] &= rhs.words[i];
+        }
+    }
+}
+
+impl BitXor for BitBoard {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] =
+                self.words[i] ^ rhs.words[i];
+        }
+
+        out
+    }
+}
+
+impl BitXorAssign for BitBoard {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        for i in 0..WORD_COUNT {
+            self.words[i] ^=
+                rhs.words[i];
+        }
+    }
+}
+
+impl Not for BitBoard {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] = !self.words[i];
+        }
+
+        // Mask unused tail bits
+        let last_bits =
+            CELL_COUNT - (64 * (WORD_COUNT - 1));
+
+        let mask = (1u64 << last_bits) - 1;
+
+        out.words[WORD_COUNT - 1] &= mask;
+
+        out
+    }
+}
+
+impl Shl<usize> for BitBoard {
+    type Output = Self;
+
+    fn shl(self, shift: usize) -> Self::Output {
+        if shift == 0 {
+            return self;
+        }
+
+        let w = shift / 64;
+        let b = shift % 64;
+
+        let mut out = Self::new();
+
+        for src in 0..WORD_COUNT {
+            let dst = src + w;
+
+            if dst >= WORD_COUNT {
+                break;
+            }
+
+            out.words[dst] |= self.words[src] << b;
+
+            if b != 0 && dst + 1 < WORD_COUNT {
+                out.words[dst + 1] |=
+                    self.words[src] >> (64 - b);
+            }
+        }
+        out
+    }
+}
+
+impl Shr<usize> for BitBoard {
+    type Output = Self;
+
+    fn shr(self, shift: usize) -> Self::Output {
+        if shift == 0 {
+            return self;
+        }
+
+        let w = shift / 64;
+        let b = shift % 64;
+
+        let mut out = Self::new();
+
+        for dst in 0..WORD_COUNT {
+            let src = dst + w;
+
+            if src >= WORD_COUNT {
+                break;
+            }
+
+            out.words[dst] |= self.words[src] >> b;
+
+            if b != 0 && src + 1 < WORD_COUNT {
+                out.words[dst] |=
+                    self.words[src + 1] << (64 - b);
+            }
         }
 
         out
