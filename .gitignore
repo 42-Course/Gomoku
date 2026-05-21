@@ -45,3 +45,7 @@ target/
 
 *.swp
 *.swo
+
+# External sibling directories
+/target
+/visualizer

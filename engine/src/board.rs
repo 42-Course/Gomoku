@@ -12,17 +12,35 @@
 //! `u32` bitmasks `(me, opp)`. Off-the-board positions are zero in *both*
 //! masks, which makes them walls - see the [`crate::patterns`] module for
 //! how that interacts with pattern recognition.
-
+use std::ops::{
+    BitAnd,
+    BitAndAssign,
+    BitOr,
+    BitOrAssign,
+    BitXor,
+    BitXorAssign,
+    Not,
+    Shl,
+    Shr,
+};
+use std::sync::LazyLock;
 use crate::constants::{BOARD_SIZE, BOARD_SIZE_I, CELL_COUNT};
-use crate::game::{Cell, Player, Pos};
+use crate::game::{Direction, Cell, Player, Pos};
+use crate::patterns::has_stable_five;
 const WORD_COUNT: usize = CELL_COUNT.div_ceil(64);
+
+pub static LEFT_EDGE: LazyLock<BitBoard> =
+    LazyLock::new(BitBoard::left_edge);
+
+pub static RIGHT_EDGE: LazyLock<BitBoard> =
+    LazyLock::new(BitBoard::right_edge);
 
 /// One player's stones, stored as a bitmap with one bit per cell.
 ///
 /// Cells are flattened in row-major order: bit `y * BOARD_SIZE + x` is set
 /// when that cell holds a stone. Six `u64` words is enough for 19×19 = 361
 /// cells with room to spare.
-#[derive(Clone)]
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
 pub struct BitBoard {
     words: [u64; WORD_COUNT],
 }
@@ -35,7 +53,7 @@ impl Default for BitBoard {
 
 impl BitBoard {
     /// Create an empty bitboard.
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             words: [0; 6]
         }
@@ -89,12 +107,301 @@ impl BitBoard {
         self.get(pos.idx())
     }
 
-    /// Bitwise OR with another bitboard. Used to compute "any stone here".
-    fn or(&self, other: &Self) -> Self {
+    /// Create a mask containing all cells on the left edge (`x = 0`)
+    /// of the board.
+    ///
+    /// Used to prevent horizontal and diagonal wraparound when
+    /// shifting bitboards westward.
+    pub fn left_edge() -> Self {
+        let mut bb = Self::new();
+
+        for y in 0..BOARD_SIZE {
+            bb.set(y * BOARD_SIZE);
+        }
+
+        bb
+    }
+
+    /// Create a mask containing all cells on the right edge
+    /// (`x = BOARD_SIZE - 1`) of the board.
+    ///
+    /// Used to prevent horizontal and diagonal wraparound when
+    /// shifting bitboards eastward.
+    pub fn right_edge() -> Self {
+        let mut bb = Self::new();
+
+        for y in 0..BOARD_SIZE {
+            bb.set(y * BOARD_SIZE + BOARD_SIZE - 1);
+        }
+
+        bb
+    }
+
+    /// Shift all bits one cell to the east (+x).
+    ///
+    /// Bits on the right edge are discarded to prevent
+    /// wraparound into the next row.
+    #[inline]
+    pub fn east(self) -> Self {
+        (self & !*RIGHT_EDGE) << 1
+    }
+
+    /// Shift all bits one cell to the west (-x).
+    ///
+    /// Bits on the left edge are discarded to prevent
+    /// wraparound into the previous row.
+    #[inline]
+    pub fn west(self) -> Self {
+        (self & !*LEFT_EDGE) >> 1
+    }
+
+    /// Shift all bits one cell to the south (+y).
+    #[inline]
+    pub fn south(self) -> Self {
+        self << BOARD_SIZE
+    }
+
+    /// Shift all bits one cell to the north (-y).
+    #[inline]
+    pub fn north(self) -> Self {
+        self >> BOARD_SIZE
+    }
+
+    /// Shift all bits one cell to the south-east (+x, +y).
+    ///
+    /// Bits on the right edge are discarded before shifting
+    /// to prevent diagonal wraparound.
+    #[inline]
+    pub fn south_east(self) -> Self {
+        (self & !*RIGHT_EDGE) << (BOARD_SIZE + 1)
+    }
+
+    /// Shift all bits one cell to the south-west (-x, +y).
+    ///
+    /// Bits on the left edge are discarded before shifting
+    /// to prevent diagonal wraparound.
+    #[inline]
+    pub fn south_west(self) -> Self {
+        (self & !*LEFT_EDGE) << (BOARD_SIZE - 1)
+    }
+
+    /// Shift all bits one cell to the north-east (+x, -y).
+    ///
+    /// Bits on the right edge are discarded before shifting
+    /// to prevent diagonal wraparound.
+    #[inline]
+    pub fn north_east(self) -> Self {
+        (self & !*RIGHT_EDGE) >> (BOARD_SIZE - 1)
+    }
+
+    /// Shift all bits one cell to the north-west (-x, -y).
+    ///
+    /// Bits on the left edge are discarded before shifting
+    /// to prevent diagonal wraparound.
+    #[inline]
+    pub fn north_west(self) -> Self {
+        (self & !*LEFT_EDGE) >> (BOARD_SIZE + 1)
+    }
+
+    /// Shift the bitboard by one cell in the given direction.
+    ///
+    /// Edge masks are applied automatically to prevent
+    /// horizontal and diagonal wraparound.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn shift(self, dir: Direction) -> Self {
+        match dir {
+            Direction::Horizontal => self.east(),
+
+            Direction::Vertical => self.south(),
+
+            Direction::Diagonal => self.south_east(),
+
+            Direction::AntiDiagonal => self.south_west(),
+        }
+    }
+
+    /// Returns whether at least one bit is set.
+    #[inline]
+    pub fn any(self) -> bool {
+        self.words.iter().any(|&w| w != 0)
+    }
+
+    /// Print the bitboard as a grid for debugging.
+    #[allow(dead_code)]
+    pub fn debug_print(self) {
+        for y in 0..BOARD_SIZE {
+            for x in 0..BOARD_SIZE {
+                let pos = Pos::from_xy(x, y);
+
+                if self.is_occupied(pos) {
+                    print!(" X");
+                } else {
+                    print!(" .");
+                }
+            }
+            println!();
+        }
+        println!();
+    }
+}
+
+/// Bitwise OR between two bitboards.
+impl BitOr for BitBoard {
+    type Output = Self;
+
+    fn bitor(self, rhs: Self) -> Self::Output {
         let mut out = Self::new();
 
         for i in 0..WORD_COUNT {
-            out.words[i] = self.words[i] | other.words[i];
+            out.words[i] = self.words[i] | rhs.words[i];
+        }
+
+        out
+    }
+}
+
+/// In-place bitwise OR assignment.
+impl BitOrAssign for BitBoard {
+    fn bitor_assign(&mut self, rhs: Self) {
+        for i in 0..WORD_COUNT {
+            self.words[i] |= rhs.words[i];
+        }
+    }
+}
+
+/// Bitwise AND between two bitboards.
+impl BitAnd for BitBoard {
+    type Output = Self;
+
+    fn bitand(self, rhs: Self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] = self.words[i] & rhs.words[i];
+        }
+
+        out
+    }
+}
+
+/// In-place bitwise AND assignment.
+impl BitAndAssign for BitBoard {
+    fn bitand_assign(&mut self, rhs: Self) {
+        for i in 0..WORD_COUNT {
+            self.words[i] &= rhs.words[i];
+        }
+    }
+}
+
+/// Bitwise XOR between two bitboards.
+impl BitXor for BitBoard {
+    type Output = Self;
+
+    fn bitxor(self, rhs: Self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] =
+                self.words[i] ^ rhs.words[i];
+        }
+
+        out
+    }
+}
+
+/// In-place bitwise XOR assignment.
+impl BitXorAssign for BitBoard {
+    fn bitxor_assign(&mut self, rhs: Self) {
+        for i in 0..WORD_COUNT {
+            self.words[i] ^=
+                rhs.words[i];
+        }
+    }
+}
+
+/// Bitwise NOT with unused tail bits masked out.
+impl Not for BitBoard {
+    type Output = Self;
+
+    fn not(self) -> Self::Output {
+        let mut out = Self::new();
+
+        for i in 0..WORD_COUNT {
+            out.words[i] = !self.words[i];
+        }
+
+        // Mask unused tail bits
+        let last_bits =
+            CELL_COUNT - (64 * (WORD_COUNT - 1));
+
+        let mask = (1u64 << last_bits) - 1;
+
+        out.words[WORD_COUNT - 1] &= mask;
+
+        out
+    }
+}
+
+/// Raw left shift across the packed bitboard without edge masking.
+impl Shl<usize> for BitBoard {
+    type Output = Self;
+
+    fn shl(self, shift: usize) -> Self::Output {
+        if shift == 0 {
+            return self;
+        }
+
+        let w = shift / 64;
+        let b = shift % 64;
+
+        let mut out = Self::new();
+
+        for src in 0..WORD_COUNT {
+            let dst = src + w;
+
+            if dst >= WORD_COUNT {
+                break;
+            }
+
+            out.words[dst] |= self.words[src] << b;
+
+            if b != 0 && dst + 1 < WORD_COUNT {
+                out.words[dst + 1] |=
+                    self.words[src] >> (64 - b);
+            }
+        }
+        out
+    }
+}
+
+/// Raw right shift across the packed bitboard without edge masking.
+impl Shr<usize> for BitBoard {
+    type Output = Self;
+
+    fn shr(self, shift: usize) -> Self::Output {
+        if shift == 0 {
+            return self;
+        }
+
+        let w = shift / 64;
+        let b = shift % 64;
+
+        let mut out = Self::new();
+
+        for dst in 0..WORD_COUNT {
+            let src = dst + w;
+
+            if src >= WORD_COUNT {
+                break;
+            }
+
+            out.words[dst] |= self.words[src] >> b;
+
+            if b != 0 && src + 1 < WORD_COUNT {
+                out.words[dst] |=
+                    self.words[src + 1] << (64 - b);
+            }
         }
 
         out
@@ -150,6 +457,14 @@ impl Board {
         !self.has(pos, Player::Black) && !self.has(pos, Player::White)
     }
 
+    /// Returns the bitboard containing all stones belonging
+    /// to the given player.
+    #[allow(dead_code)]
+    #[inline]
+    pub fn bits(&self, player: Player) -> BitBoard {
+        self.boards[player.idx()]
+    }
+
     /// Validate that `(x, y)` is a legal placement target.
     ///
     /// # Errors
@@ -198,7 +513,7 @@ impl Board {
 
     /// Whether every cell on the board is occupied (used to flag draws).
     pub fn is_full(&self) -> bool {
-        let occupied = self.boards[Player::Black.idx()].or(&self.boards[Player::White.idx()]);
+        let occupied = self.boards[Player::Black.idx()] | self.boards[Player::White.idx()];
         let w = BOARD_SIZE / 64;
         let b = BOARD_SIZE % 64;
 
@@ -211,6 +526,13 @@ impl Board {
         let last_mast = (1u64 << b) - 1;
 
         occupied.words[w] == last_mast
+    }
+
+    /// Returns whether the player has a stable five-in-a-row.
+    pub fn check_five(&self, player: Player) -> bool {
+        let me = self.boards[player.idx()];
+        let opp = self.boards[player.opponent().idx()];
+        has_stable_five(me, opp)
     }
 
     /// Pack one straight line of cells into two bitmasks.
