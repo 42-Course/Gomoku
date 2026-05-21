@@ -135,15 +135,49 @@ fn negamax(
     let mut best_score = i32::MIN + 1;
     let mut best_mv: Option<Pos> = None;
 
-    for mv in ordered_moves {
+    for (i, mv) in ordered_moves.into_iter().enumerate() {
         // generate_moves already filters illegal placements, but play_move
         // is still the source of truth — skip defensively if it rejects.
         if game.play_pos(mv).is_err() {
             continue;
         }
 
-        let (child_score, _) = negamax(game, depth - 1, -beta, -alpha, tt, nodes);
-        let score = -child_score;
+        let reduction =
+            if depth >= 6 && i >= 3 {
+                2
+            } else if depth >= 3 && i >= 3 {
+                1
+            } else {
+                0
+            };
+
+        let search_depth = depth - 1 - reduction;
+
+        let (child_score, _) = negamax(
+            game,
+            search_depth,
+            -beta,
+            -alpha,
+            tt,
+            nodes
+        );
+
+        let mut score = -child_score;
+
+        // Re-search surprising reduced moves.
+        if reduction > 0 && score > alpha {
+            let (full_score, _) =
+                negamax(
+                    game,
+                    depth - 1,
+                    -beta,
+                    -alpha,
+                    tt,
+                    nodes,
+                );
+
+            score = -full_score;
+        }
 
         game.undo_move().expect("undo_move must succeed after a successful play_move");
 
@@ -441,5 +475,29 @@ mod tests {
         println!("TT nodes: {}", r2.nodes_visited);
 
         assert!(r2.nodes_visited < r1.nodes_visited);
+    }
+
+    #[test]
+    fn depth_10_benchmark() {
+        use std::time::Instant;
+
+        let mut game = midgame_position();
+
+        let start = Instant::now();
+
+        let result = best_move(
+            &mut game,
+            10,
+            20,
+        );
+
+        let elapsed = start.elapsed();
+
+        println!();
+        println!("=== Depth 10 Benchmark ===");
+        println!("best move: {:?}", result.best_move);
+        println!("score: {}", result.score);
+        println!("nodes: {}", result.nodes_visited);
+        println!("time: {:?}", elapsed);
     }
 }
