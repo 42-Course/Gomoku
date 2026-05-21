@@ -6,9 +6,13 @@
 //! Earlier iterations improve move ordering for deeper searches through
 //! TT reuse, reducing the explored search tree and improving pruning
 //! efficiency at larger depths.
+use std::time::{Duration, Instant};
 use crate::game::Game;
 use crate::transpose::{ TranspositionTable };
 use crate::ai::search::{ SearchResult, best_move_with_tt };
+
+// Set max to 1 / 5 of the actual time limit
+const TIMEOUT_MS : u64 = 100;
 
 /// Result returned by iterative deepening search.
 ///
@@ -27,6 +31,10 @@ pub struct IterativeResult {
 /// the same transposition table across iterations to improve move
 /// ordering and alpha-beta pruning efficiency.
 ///
+/// Iterations stop early once the cumulative search time exceeds
+/// `TIMEOUT_MS`, preventing the next depth from exploding
+/// exponentially in cost.
+///
 /// Returns the best result from the deepest completed iteration.
 #[allow(dead_code)]
 pub fn iterative_deepening(
@@ -37,10 +45,19 @@ pub fn iterative_deepening(
     let mut best = None;
 
     let mut tt = TranspositionTable::new(tt_size);
+
+    let start = Instant::now();
     for depth in 1..=max_depth {
         let result = best_move_with_tt(game, depth, &mut tt);
 
+        let elapsed = start.elapsed();
         best = Some((depth, result));
+
+        // Avoid starting an iteration that is
+        // likely to explode exponentially.
+        if elapsed > Duration::from_millis(TIMEOUT_MS) {
+            break;
+        }
     }
 
     let (depth_reached, result) =
@@ -183,5 +200,32 @@ mod tests {
             direct.score,
             iterative.result.score,
         );
+    }
+
+    #[test]
+    fn iterative_stops_after_slow_iteration() {
+        use std::time::{Duration, Instant};
+
+        let mut game = midgame_position();
+
+        let start = Instant::now();
+
+        let result = iterative_deepening(
+            &mut game,
+            20,
+            20,
+        );
+
+        let elapsed = start.elapsed();
+
+        println!();
+        println!("depth reached: {}", result.depth_reached);
+        println!("elapsed: {:?}", elapsed);
+
+        // We should stop before reaching max depth.
+        assert!(result.depth_reached < 20);
+
+        // Sanity check that the search remains bounded.
+        assert!(elapsed < Duration::from_secs(2));
     }
 }

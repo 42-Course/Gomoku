@@ -226,7 +226,6 @@ pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
         };
     }
 
-    let mut nodes = 0u64;
     let mut tt = TranspositionTable::new(tt_size);
 
     best_move_with_tt(
