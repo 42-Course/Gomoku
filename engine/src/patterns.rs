@@ -14,11 +14,23 @@
 //!
 //! # Public API
 //!
+//! Packed-line (`u32`) helpers:
+//!
 //! - [`count_patterns`] — tally every maximal run on a line by length and
 //!   openness.
 //! - [`has_free_three`] — yes/no check for the four free-three shapes,
 //!   used by the double-three rule.
 //! - [`PatternCounts`] — the tally type produced by [`count_patterns`].
+//!
+//! Whole-board ([`BitBoard`]) helpers:
+//!
+//! - [`five_mask`] — starting cells of every contiguous five along a
+//!   direction.
+//! - [`expand_five`] — expand five-start bits into full five-cell masks.
+//! - [`capturable_mask`] — every player stone that is part of a
+//!   capturable pair in any direction.
+//! - [`has_stable_five`] — does the player have a five whose stones
+//!   can't all be broken by a capture?
 
 #![allow(dead_code)]
 
@@ -194,28 +206,38 @@ pub fn expand_five(
 
 /// Returns whether the player has a stable
 /// five-in-a-row alignment.
+///
+/// A five is "stable" if no stone within its five cells can be
+/// captured by the opponent. When a direction contains multiple
+/// overlapping fives (e.g. a six-in-a-row contains two), each
+/// candidate is checked individually — a five whose own five
+/// cells don't intersect any capturable stone wins even if a
+/// sibling five in the same direction is unstable.
 pub fn has_stable_five(
     me: BitBoard,
     opp: BitBoard,
 ) -> bool {
+    let capturable = capturable_mask(me, opp);
+
     for dir in Direction::all() {
-        let starts =
-            five_mask(me, dir);
+        let starts = five_mask(me, dir);
 
         if !starts.any() {
             continue;
         }
 
-        let capturable =
-            capturable_mask(me, opp);
+        // Dilate `capturable` backward 0..=4 steps so that every
+        // start position whose five-cell window covers a capturable
+        // stone gets a bit set. The complement intersected with
+        // `starts` is the set of stable five starts.
+        let mut killed = capturable;
+        let mut acc = capturable;
+        for _ in 0..4 {
+            acc = dir.backward(acc);
+            killed |= acc;
+        }
 
-        let five =
-            expand_five(starts, dir);
-
-        let vulnerable =
-            five & capturable;
-
-        if !vulnerable.any() {
+        if (starts & !killed).any() {
             return true;
         }
     }
@@ -244,7 +266,11 @@ pub fn capturable_mask(
 
 /// Returns all capturable pairs in one direction.
 ///
-/// `forward` and `backward` must be opposite geometric shifts.
+/// Each bit `i` in the result marks a player stone that is part
+/// of a capturable pair along `dir`. The two arms below match the
+/// pair against position `i` (the *forward* stone of the pair),
+/// then `dir.backward(starts)` adds the *backward* stone of each
+/// matched pair.
 #[inline]
 fn capturable_pairs_dir(
     player: BitBoard,
@@ -253,7 +279,7 @@ fn capturable_pairs_dir(
     dir: Direction
 ) -> BitBoard {
     //
-    // O X X .
+    // . X X O   (empty backward of pair, opponent forward of pair)
     //
     let left =
         player &
@@ -262,12 +288,12 @@ fn capturable_pairs_dir(
         dir.backward(opponent);
 
     //
-    // . X X O
+    // O X X .   (opponent backward of pair, empty forward of pair)
     //
     let right =
         player &
         dir.forward(player) &
-        dir.backward(dir.backward(empty)) &
+        dir.backward(empty) &
         dir.forward(dir.forward(opponent));
 
     let starts = left | right;
@@ -495,6 +521,52 @@ use super::*;
     }
 
     #[test]
+    fn capturable_oxx_dot_blocked_by_extra_stone() {
+        // O X X . X
+        //
+        // Opponent playing at (3, 0) makes O X X O and captures
+        // (1, 0) and (2, 0). The extra X at (4, 0) must not hide
+        // the capture from `capturable_mask`.
+        let me = bb(&[(1, 0), (2, 0), (4, 0)]);
+        let opp = bb(&[(0, 0)]);
+        let capturable = capturable_mask(me, opp);
+        assert!(capturable.is_occupied(Pos::from_xy(1, 0)));
+        assert!(capturable.is_occupied(Pos::from_xy(2, 0)));
+    }
+
+    #[test]
+    fn capturable_dot_xx_o_blocked_by_extra_stone() {
+        // X . X X O
+        //
+        // Mirror of the above: empty at (1, 0), pair at (2, 0)-(3, 0),
+        // O at (4, 0), and an extra X at (0, 0). The pair is capturable
+        // by playing at (1, 0).
+        let me = bb(&[(0, 0), (2, 0), (3, 0)]);
+        let opp = bb(&[(4, 0)]);
+        let capturable = capturable_mask(me, opp);
+        assert!(capturable.is_occupied(Pos::from_xy(2, 0)));
+        assert!(capturable.is_occupied(Pos::from_xy(3, 0)));
+    }
+
+    #[test]
+    fn six_in_a_row_with_one_capturable_end_is_stable() {
+        //   .  .  .  .  .  .
+        //   X  X  X  X  X  X   <- row 1
+        //   X  .  .  .  .  .
+        //   O  .  .  .  .  .
+        //
+        // The five at (1, 1)-(5, 1) does not contain (0, 1) or
+        // (0, 2), so it is stable even though (0, 1) is part of a
+        // capturable vertical pair.
+        let me = bb(&[
+            (0, 1), (1, 1), (2, 1), (3, 1), (4, 1), (5, 1),
+            (0, 2),
+        ]);
+        let opp = bb(&[(0, 3)]);
+        assert!(has_stable_five(me, opp));
+    }
+
+    #[test]
     fn stable_five_detected() {
         let me = bb(&[
             (0, 0),
@@ -560,11 +632,17 @@ use super::*;
     }
 
     #[test]
-    fn not_unstable_five_rejected() {
+    fn stable_five_when_diagonal_pair_is_double_flanked() {
         // O
         // X X X X X
         // . . X
         // . . . O
+        //
+        // The diagonal pair (1, 1)-(2, 2) is bracketed by O on BOTH
+        // sides ((0, 0) and (3, 3)), so the opponent has no empty
+        // cell to play into to complete a capture. The pair is not
+        // currently capturable, so the horizontal five at row 1 is
+        // stable.
         let me = bb(&[
             (0, 1),
             (1, 1),
@@ -580,7 +658,7 @@ use super::*;
         ]);
 
         assert!(
-            !has_stable_five(me, opp)
+            has_stable_five(me, opp)
         );
     }
 }
