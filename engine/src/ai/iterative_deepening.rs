@@ -100,7 +100,6 @@ pub fn iterative_deepening(
         }
 
         let result = search_iteration(game, depth, &mut tt);
-        println!("i: {}, nodes: {}", depth, result.nodes_visited);
         total_nodes += result.nodes_visited;
         best = Some((depth, result));
     }
