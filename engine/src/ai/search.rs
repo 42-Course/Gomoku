@@ -24,6 +24,7 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::ai::eval::evaluate;
+use crate::ai::iterative_deepening::iterative_deepening;
 use crate::ai::move_ordering::order_moves;
 use crate::constants::BOARD_SIZE;
 use crate::game::{Game, GameStatus, Pos};
@@ -34,14 +35,21 @@ use crate::transpose::{Bound, TTEntry, TranspositionTable};
 pub const WIN_SCORE: i32 = 1_000_000;
 
 /// What the search returns to the caller.
-#[derive(Debug, Clone)]
 pub struct SearchResult {
-    /// The chosen move, or `None` at depth 0 / when no legal moves exist.
+    /// Final chosen move.
     pub best_move: Option<Pos>,
-    /// Score from the root side-to-move's perspective.
+
+    /// Final evaluation score.
     pub score: i32,
-    /// Total nodes (including leaves) visited during the search.
-    pub nodes_visited: u64,
+
+    /// Deepest fully completed iterative depth.
+    pub depth_reached: u32,
+
+    /// Total nodes searched across all iterations.
+    pub total_nodes: u64,
+
+    /// Deepest ply explored overall.
+    pub max_ply: u32,
 }
 
 /// If the position is terminal, return its score from the side-to-move's
@@ -77,15 +85,19 @@ fn terminal_score(game: &Game, depth: u32) -> Option<i32> {
 /// pruning and ordering.
 ///
 /// Returns `(score, best_move_at_this_node)`.
-fn negamax(
+#[allow(clippy::too_many_arguments)]
+pub fn negamax(
     game: &mut Game,
     depth: u32,
     mut alpha: i32,
     mut beta: i32,
     tt: &mut TranspositionTable,
     nodes: &mut u64,
+    max_ply: &mut u32,
+    ply: u32
 ) -> (i32, Option<Pos>) {
     *nodes += 1;
+    *max_ply = (*max_ply).max(ply);
 
     // Look in the transposition table, if the board has been generated
     let original_alpha = alpha;
@@ -159,7 +171,9 @@ fn negamax(
             -beta,
             -alpha,
             tt,
-            nodes
+            nodes,
+            max_ply,
+            ply + 1
         );
 
         let mut score = -child_score;
@@ -174,6 +188,8 @@ fn negamax(
                     -alpha,
                     tt,
                     nodes,
+                    max_ply,
+                    ply + 1
                 );
 
             score = -full_score;
@@ -213,29 +229,6 @@ fn negamax(
     (best_score, best_mv)
 }
 
-pub fn best_move_with_tt(
-    game: &mut Game,
-    depth: u32,
-    tt: &mut TranspositionTable,
-) -> SearchResult {
-    let mut nodes = 0u64;
-
-    let (score, mv) = negamax(
-        game,
-        depth,
-        i32::MIN + 1,
-        i32::MAX - 1,
-        tt,
-        &mut nodes,
-    );
-
-    SearchResult {
-        best_move: mv,
-        score,
-        nodes_visited: nodes,
-    }
-}
-
 /// Run alpha-beta and return the best move + score.
 ///
 /// The game is left untouched (every played move is undone).
@@ -256,17 +249,30 @@ pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
         return SearchResult {
             best_move: Some(random_central_opening()),
             score: 0,
-            nodes_visited: 0,
+            depth_reached: 0,
+            total_nodes: 0,
+            max_ply: 0
         };
     }
 
-    let mut tt = TranspositionTable::new(tt_size);
+    if depth == 0 {
+        return SearchResult {
+            best_move: None,
+            score: evaluate(game),
+            depth_reached: 0,
+            total_nodes: 1,
+            max_ply: 0,
+        };
+    }
 
-    best_move_with_tt(
-        game,
-        depth,
-        &mut tt,
-    )
+    let res = iterative_deepening(game, depth, tt_size);
+    SearchResult {
+        best_move: res.result.best_move,
+        score: res.result.score,
+        depth_reached: res.depth_reached,
+        total_nodes: res.total_nodes,
+        max_ply: res.result.max_ply
+    }
 }
 
 /// Pick a Pos uniformly from the 3×3 block centred on the board centre.
@@ -307,7 +313,7 @@ mod tests {
 
         let result = best_move(&mut game, 0, 0);
         assert_eq!(result.best_move, None);
-        assert_eq!(result.nodes_visited, 1);
+        assert_eq!(result.total_nodes, 1);
     }
 
     #[test]
@@ -323,7 +329,7 @@ mod tests {
         let dx = (x as isize - centre).abs();
         let dy = (y as isize - centre).abs();
         assert!(dx <= 1 && dy <= 1, "opening {:?} must be within the central 3x3", (x, y));
-        assert_eq!(result.nodes_visited, 0, "empty-board opening should bypass search");
+        assert_eq!(result.total_nodes, 0, "empty-board opening should bypass search");
     }
 
     #[test]
@@ -373,8 +379,8 @@ mod tests {
         assert_eq!(r1.best_move, r2.best_move, "best move differs");
         assert_eq!(r1.score, r2.score, "score differs");
         assert_eq!(
-            r1.nodes_visited,
-            r2.nodes_visited,
+            r1.total_nodes,
+            r2.total_nodes,
             "node count differs"
         );
     }
@@ -451,10 +457,10 @@ mod tests {
         let r1 = best_move(&mut g1, 6, 0);
         let r2 = best_move(&mut g2, 6, 20);
 
-        println!("no TT nodes: {}", r1.nodes_visited);
-        println!("TT nodes: {}", r2.nodes_visited);
+        println!("no TT nodes: {}", r1.total_nodes);
+        println!("TT nodes: {}", r2.total_nodes);
 
-        assert!(r2.nodes_visited < r1.nodes_visited);
+        assert!(r2.total_nodes < r1.total_nodes);
     }
 
     #[test]
@@ -471,10 +477,10 @@ mod tests {
         assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
         assert_eq!(r1.score, r2.score, "score differs with TT");
 
-        println!("no TT nodes: {}", r1.nodes_visited);
-        println!("TT nodes: {}", r2.nodes_visited);
+        println!("no TT nodes: {}", r1.total_nodes);
+        println!("TT nodes: {}", r2.total_nodes);
 
-        assert!(r2.nodes_visited < r1.nodes_visited);
+        assert!(r2.total_nodes < r1.total_nodes);
     }
 
     #[test]
@@ -496,8 +502,15 @@ mod tests {
         println!();
         println!("=== Depth 10 Benchmark ===");
         println!("best move: {:?}", result.best_move);
+        println!("depth reached: {}", result.depth_reached);
+        println!("max_ply: {}", result.max_ply);
         println!("score: {}", result.score);
-        println!("nodes: {}", result.nodes_visited);
+        println!("total_nodes: {}", result.total_nodes);
         println!("time: {:?}", elapsed);
+
+        let ebf = (result.total_nodes as f64)
+            .powf(1.0 / result.depth_reached as f64);
+
+        println!("effective branching factor: {:.2}", ebf);
     }
 }
