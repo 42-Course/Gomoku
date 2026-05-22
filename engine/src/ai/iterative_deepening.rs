@@ -23,6 +23,8 @@ pub struct IterativeResult {
     pub result: SearchResult,
     /// Deepest fully completed search depth.
     pub depth_reached: u32,
+    /// Total nodes seached.
+    pub total_nodes: u64,
 }
 
 /// Run iterative deepening negamax search up to `max_depth`.
@@ -43,21 +45,23 @@ pub fn iterative_deepening(
     tt_size: usize,
 ) -> IterativeResult {
     let mut best = None;
-
     let mut tt = TranspositionTable::new(tt_size);
-
+    let mut total_nodes = 0;
     let start = Instant::now();
+
     for depth in 1..=max_depth {
-        let result = best_move_with_tt(game, depth, &mut tt);
-
-        let elapsed = start.elapsed();
-        best = Some((depth, result));
-
         // Avoid starting an iteration that is
         // likely to explode exponentially.
+        let elapsed = start.elapsed();
+
         if elapsed > Duration::from_millis(TIMEOUT_MS) {
             break;
         }
+
+        let result = best_move_with_tt(game, depth, &mut tt);
+
+        total_nodes += result.nodes_visited;
+        best = Some((depth, result));
     }
 
     let (depth_reached, result) =
@@ -66,6 +70,7 @@ pub fn iterative_deepening(
     IterativeResult {
         result,
         depth_reached,
+        total_nodes
     }
 }
 
@@ -207,7 +212,6 @@ mod tests {
         use std::time::{Duration, Instant};
 
         let mut game = midgame_position();
-
         let start = Instant::now();
 
         let result = iterative_deepening(
@@ -227,5 +231,35 @@ mod tests {
 
         // Sanity check that the search remains bounded.
         assert!(elapsed < Duration::from_secs(2));
+    }
+    #[test]
+    fn iterative_depth_10_benchmark() {
+        use std::time::Instant;
+
+        let mut game = midgame_position();
+
+        game.print_board(true);
+        let start = Instant::now();
+
+        let result = iterative_deepening(
+            &mut game,
+            10,
+            20,
+        );
+
+        let elapsed = start.elapsed();
+
+        println!();
+        println!("=== Iterative Deepening Benchmark ===");
+        println!("depth reached: {}", result.depth_reached);
+        println!("best move: {:?}", result.result.best_move);
+        println!("score: {}", result.result.score);
+        println!("total nodes searched: {}", result.total_nodes);
+        println!("elapsed: {:?}", elapsed);
+
+        let ebf = (result.result.nodes_visited as f64)
+            .powf(1.0 / result.depth_reached as f64);
+
+        println!("effective branching factor: {:.2}", ebf);
     }
 }
