@@ -11,6 +11,8 @@
 //! must call `handle.free()` when it's done with a game, or hold a single
 //! handle for the lifetime of the page.
 
+use std::result;
+
 use engine::ai;
 use engine::constants::BOARD_SIZE;
 use engine::game::Game;
@@ -100,7 +102,9 @@ impl GameHandle {
                 MoveDTO { x: x as u32, y: y as u32 }
             }),
             score: result.score,
-            nodes_visited: result.nodes_visited,
+            depth_reached: result.depth_reached,
+            total_nodes: result.total_nodes,
+            max_ply: result.max_ply
         };
         dto.serialize(&js_serializer()).map_err(into_js_error)
     }
