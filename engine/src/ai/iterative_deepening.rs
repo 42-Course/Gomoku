@@ -54,6 +54,47 @@ pub fn search_iteration(
     }
 }
 
+/// What the search returns to the caller.
+#[derive(Debug, Clone)]
+pub struct SearchIterationResult {
+    /// The chosen move, or `None` at depth 0 / when no legal moves exist.
+    pub best_move: Option<Pos>,
+    /// Score from the root side-to-move's perspective.
+    pub score: i32,
+    /// Total nodes (including leaves) visited during the search.
+    pub nodes_visited: u64,
+    /// Deepest ply explored during the search.
+    pub max_ply: u32,
+}
+
+/// Run a single fixed-depth negamax search iteration using
+/// alpha-beta pruning and the shared transposition table.
+pub fn search_iteration(
+    game: &mut Game,
+    depth: u32,
+    tt: &mut TranspositionTable,
+) -> SearchIterationResult {
+    let mut nodes = 0u64;
+    let mut max_ply = 0;
+    let (score, mv) = negamax(
+        game,
+        depth,
+        i32::MIN + 1,
+        i32::MAX - 1,
+        tt,
+        &mut nodes,
+        &mut max_ply,
+        0
+    );
+
+    SearchIterationResult {
+        best_move: mv,
+        score,
+        nodes_visited: nodes,
+        max_ply
+    }
+}
+
 /// Result returned by iterative deepening search.
 ///
 /// Contains the best result from the deepest completed iteration.
@@ -282,35 +323,5 @@ mod tests {
 
         // Sanity check that the search remains bounded.
         assert!(elapsed < Duration::from_secs(2));
-    }
-    #[test]
-    fn iterative_depth_10_benchmark() {
-        use std::time::Instant;
-
-        let mut game = midgame_position();
-
-        game.print_board(true);
-        let start = Instant::now();
-
-        let result = iterative_deepening(
-            &mut game,
-            10,
-            20,
-        );
-
-        let elapsed = start.elapsed();
-
-        println!();
-        println!("=== Iterative Deepening Benchmark ===");
-        println!("depth reached: {}", result.depth_reached);
-        println!("best move: {:?}", result.result.best_move);
-        println!("score: {}", result.result.score);
-        println!("total nodes searched: {}", result.total_nodes);
-        println!("elapsed: {:?}", elapsed);
-
-        let ebf = (result.result.nodes_visited as f64)
-            .powf(1.0 / result.depth_reached as f64);
-
-        println!("effective branching factor: {:.2}", ebf);
     }
 }
