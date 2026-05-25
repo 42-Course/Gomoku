@@ -11,11 +11,13 @@
 //! - [`best_move`] runs the search and returns the chosen move + score.
 //! - [`evaluate`] if you want the leaf score for a position directly.
 
+pub mod config;
 pub mod eval;
 pub mod search;
 pub mod move_ordering;
 pub mod iterative_deepening;
 
+pub use config::SearchConfig;
 #[allow(unused_imports)]
 pub use eval::evaluate;
 #[allow(unused_imports)]

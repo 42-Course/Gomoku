@@ -23,6 +23,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::ai::SearchConfig;
 use crate::ai::eval::evaluate;
 use crate::ai::iterative_deepening::iterative_deepening;
 use crate::ai::move_ordering::order_moves;
@@ -94,7 +95,8 @@ pub fn negamax(
     tt: &mut TranspositionTable,
     nodes: &mut u64,
     max_ply: &mut u32,
-    ply: u32
+    ply: u32,
+    config: &SearchConfig
 ) -> (i32, Option<Pos>) {
     *nodes += 1;
     *max_ply = (*max_ply).max(ply);
@@ -155,7 +157,9 @@ pub fn negamax(
         }
 
         let reduction =
-            if depth >= 6 && i >= 3 {
+            if !config.enable_lmr {
+                0
+            } else if depth >= 6 && i >= 3 {
                 2
             } else if depth >= 3 && i >= 3 {
                 1
@@ -173,7 +177,8 @@ pub fn negamax(
             tt,
             nodes,
             max_ply,
-            ply + 1
+            ply + 1,
+            config
         );
 
         let mut score = -child_score;
@@ -189,7 +194,8 @@ pub fn negamax(
                     tt,
                     nodes,
                     max_ply,
-                    ply + 1
+                    ply + 1,
+                    config
                 );
 
             score = -full_score;
@@ -265,7 +271,9 @@ pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
         };
     }
 
-    let res = iterative_deepening(game, depth, tt_size);
+    let config = SearchConfig::default();
+
+    let res = iterative_deepening(game, depth, tt_size, &config);
     SearchResult {
         best_move: res.result.best_move,
         score: res.result.score,

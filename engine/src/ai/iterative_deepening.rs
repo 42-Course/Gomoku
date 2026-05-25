@@ -9,10 +9,7 @@
 use std::time::{Duration, Instant};
 use crate::game::{ Game, Pos };
 use crate::transpose::{ TranspositionTable };
-use crate::ai::negamax;
-
-// Set max to 1 / 5 of the actual time limit
-const TIMEOUT_MS : u64 = 100;
+use crate::ai::{SearchConfig, negamax};
 
 /// What the search returns to the caller.
 #[derive(Debug, Clone)]
@@ -33,6 +30,7 @@ pub fn search_iteration(
     game: &mut Game,
     depth: u32,
     tt: &mut TranspositionTable,
+    config: &SearchConfig
 ) -> SearchIterationResult {
     let mut nodes = 0u64;
     let mut max_ply = 0;
@@ -44,7 +42,8 @@ pub fn search_iteration(
         tt,
         &mut nodes,
         &mut max_ply,
-        0
+        0,
+        config
     );
 
     SearchIterationResult {
@@ -84,6 +83,7 @@ pub fn iterative_deepening(
     game: &mut Game,
     max_depth: u32,
     tt_size: usize,
+    config: &SearchConfig,
 ) -> IterativeResult {
     let mut best = None;
     let mut tt = TranspositionTable::new(tt_size);
@@ -95,11 +95,11 @@ pub fn iterative_deepening(
         // likely to explode exponentially.
         let elapsed = start.elapsed();
 
-        if elapsed > Duration::from_millis(TIMEOUT_MS) {
+        if elapsed > Duration::from_millis(config.timeout_ms) {
             break;
         }
 
-        let result = search_iteration(game, depth, &mut tt);
+        let result = search_iteration(game, depth, &mut tt, config);
         total_nodes += result.nodes_visited;
         best = Some((depth, result));
     }
@@ -145,11 +145,13 @@ mod tests {
         let mut game = midgame_position();
 
         let before = game.clone();
+        let config = SearchConfig::default();
 
         iterative_deepening(
             &mut game,
             5,
             20,
+            &config
         );
 
         assert_eq!(game.hash(), before.hash());
@@ -194,10 +196,12 @@ mod tests {
 
         game.play_move(3, 9).unwrap();
 
+        let config = SearchConfig::default();
         let result = iterative_deepening(
             &mut game,
             4,
             20,
+            &config
         );
 
         assert_eq!(
@@ -219,8 +223,9 @@ mod tests {
         let direct = best_move(&mut g1, depth, 20);
         let direct_time = start.elapsed();
 
+        let config = SearchConfig::default();
         let start = Instant::now();
-        let iterative = iterative_deepening(&mut g2, depth, 20);
+        let iterative = iterative_deepening(&mut g2, depth, 20, &config);
         let iterative_time = start.elapsed();
 
         println!();
@@ -254,10 +259,12 @@ mod tests {
         let mut game = midgame_position();
         let start = Instant::now();
 
+        let config = SearchConfig::default();
         let result = iterative_deepening(
             &mut game,
             20,
             20,
+            &config
         );
 
         let elapsed = start.elapsed();
