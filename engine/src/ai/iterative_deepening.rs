@@ -73,6 +73,7 @@ pub fn search_iteration(
     game: &mut Game,
     depth: u32,
     tt: &mut TranspositionTable,
+    config: &SearchConfig
 ) -> SearchIterationResult {
     let mut nodes = 0u64;
     let mut max_ply = 0;
@@ -84,7 +85,8 @@ pub fn search_iteration(
         tt,
         &mut nodes,
         &mut max_ply,
-        0
+        0,
+        config
     );
 
     SearchIterationResult {
