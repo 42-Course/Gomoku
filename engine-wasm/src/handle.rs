@@ -10,9 +10,6 @@
 //! `wasm-bindgen` reference-counts handles on the JS side. The visualizer
 //! must call `handle.free()` when it's done with a game, or hold a single
 //! handle for the lifetime of the page.
-
-use std::result;
-
 use engine::ai;
 use engine::constants::BOARD_SIZE;
 use engine::game::Game;
