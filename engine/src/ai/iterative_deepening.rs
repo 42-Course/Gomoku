@@ -90,7 +90,11 @@ pub fn iterative_deepening(
     let mut total_nodes = 0;
     let start = Instant::now();
 
-    for depth in 1..=max_depth {
+    let start_depth = config
+        .iterative_start_depth
+        .min(max_depth);
+
+    for depth in start_depth..=max_depth {
         // Avoid starting an iteration that is
         // likely to explode exponentially.
         let elapsed = start.elapsed();
