@@ -115,6 +115,21 @@ impl Direction {
         }
     }
 
+    #[inline]
+    pub fn forward_n(
+        self,
+        bits: BitBoard,
+        n: usize,
+    ) -> BitBoard {
+        let mut out = bits;
+
+        for _ in 0..n {
+            out = self.forward(out);
+        }
+
+        out
+    }
+
     /// Shift the bitboard one cell backward along this direction.
     #[inline]
     pub fn backward(
@@ -134,6 +149,21 @@ impl Direction {
             Direction::AntiDiagonal =>
                 bits.north_east(),
         }
+    }
+
+    #[inline]
+    pub fn backward_n(
+        self,
+        bits: BitBoard,
+        n: usize,
+    ) -> BitBoard {
+        let mut out = bits;
+
+        for _ in 0..n {
+            out = self.backward(out);
+        }
+
+        out
     }
 
     #[inline]

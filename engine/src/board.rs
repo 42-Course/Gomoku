@@ -221,6 +221,39 @@ impl BitBoard {
         }
     }
 
+    /// Extract and remove the least-significant set bit.
+    ///
+    /// Returns an empty bitboard if no bits are set.
+    #[inline]
+    pub fn pop_lsb(&mut self) -> BitBoard {
+        for i in 0..self.words.len() {
+            let word = self.words[i];
+
+            if word == 0 {
+                continue;
+            }
+
+            let bit = word & (!word + 1);
+
+            self.words[i] &= self.words[i] - 1;
+
+            let mut out = BitBoard::new();
+            out.words[i] = bit;
+
+            return out;
+        }
+
+        BitBoard::new()
+    }
+
+    #[inline]
+    pub fn count_ones(self) -> u32 {
+        self.words
+            .iter()
+            .map(|x| x.count_ones())
+            .sum()
+    }
+
     /// Returns whether at least one bit is set.
     #[inline]
     pub fn any(self) -> bool {

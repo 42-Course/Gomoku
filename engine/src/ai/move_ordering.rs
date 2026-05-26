@@ -92,7 +92,7 @@ fn evaluate_threat(game: &Game, pos: Pos, player: Player) -> i32 {
         let (me, opp, len) = pack_local_line(&game.board, pos, dir, 4, player);
 
         let patterns = count_patterns(me as u32, opp as u32, len);
-        score += patterns.fives as i32 * 100_000;
+        score += patterns.stable_five as i32 * 100_000;
         score += patterns.open_four as i32 * 10_000;
         score += patterns.closed_four as i32 * 2_000;
         score += patterns.open_three as i32 * 500;

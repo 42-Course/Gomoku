@@ -24,12 +24,13 @@
 
 use crate::board::Board;
 use crate::game::{Game, GameStatus, Player};
-use crate::patterns::{count_patterns, PatternCounts};
+use crate::patterns::{count_patterns_new, PatternCounts};
 
 /// Score returned for a winning terminal position. Mirrors
 /// [`crate::ai::search::WIN_SCORE`] so the two modules can be reasoned
 /// about independently.
 pub const WIN_SCORE: i32    = 1_000_000;
+const UNSTABLE_FIVE: i32    = 100_000;
 const OPEN_FOUR: i32        = 100_000;
 const CLOSED_FOUR: i32      = 20_000;
 const OPEN_THREE: i32       = 5_000;
@@ -41,7 +42,7 @@ const CAPTURE_PAIR: i32     = 2_000;
 /// A single 5-in-a-row already wins, but we never reach this branch in
 /// search — `terminal_score` has the final word at the root. Five-counts
 /// here are a defensive fallback if eval is called from outside.
-const FIVE_FALLBACK: i32    = WIN_SCORE;
+const STABLE_FIVE: i32    = WIN_SCORE;
 
 /// Score the position from the side-to-move's perspective.
 ///
@@ -78,13 +79,23 @@ fn capture_diff(game: &Game, me: Player) -> i32 {
 }
 
 /// Total pattern score for one player across every line on the board.
+// fn score_player(board: &Board, player: Player) -> i32 {
+//     let mut totals = PatternCounts::default();
+//     // No useful pattern fits in fewer than 5 cells — skip stub diagonals.
+//     board.for_each_line(player, 5, |me, opp, len| {
+//         let line = count_patterns(me, opp, len);
+//         totals.add(&line);
+//     });
+
+//     score_from_counts(&totals)
+// }
+
 fn score_player(board: &Board, player: Player) -> i32 {
     let mut totals = PatternCounts::default();
-    // No useful pattern fits in fewer than 5 cells — skip stub diagonals.
-    board.for_each_line(player, 5, |me, opp, len| {
-        let line = count_patterns(me, opp, len);
-        totals.add(&line);
-    });
+    let me = board.bits(player);
+    let opp = board.bits(player.opponent());
+    let score = count_patterns_new(me, opp);
+    totals.add(&score);
 
     score_from_counts(&totals)
 }
@@ -92,7 +103,8 @@ fn score_player(board: &Board, player: Player) -> i32 {
 /// Convert a [`PatternCounts`] tally to an integer score using the
 /// per-pattern weights at the top of this module.
 fn score_from_counts(c: &PatternCounts) -> i32 {
-    (c.fives as i32) * FIVE_FALLBACK
+    (c.stable_five as i32) * STABLE_FIVE
+        + (c.unstable_five as i32) * UNSTABLE_FIVE
         + (c.open_four as i32) * OPEN_FOUR
         + (c.closed_four as i32) * CLOSED_FOUR
         + (c.open_three as i32) * OPEN_THREE
