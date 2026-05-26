@@ -97,8 +97,12 @@ pub struct BestMoveDTO {
     pub r#move: Option<MoveDTO>,
     /// Score from the side-to-move's perspective.
     pub score: i32,
+    /// Deepest fully completed iterative depth.
+    pub depth_reached: u32,
     /// Total nodes (incl. leaves) the search visited.
-    pub nodes_visited: u64,
+    pub total_nodes: u64,
+    /// Deepest ply explored overall.
+    pub max_ply: u32,
 }
 
 /// Read-only snapshot of the game for rendering.

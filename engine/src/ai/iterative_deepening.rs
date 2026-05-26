@@ -7,12 +7,52 @@
 //! TT reuse, reducing the explored search tree and improving pruning
 //! efficiency at larger depths.
 use std::time::{Duration, Instant};
-use crate::game::Game;
+use crate::game::{ Game, Pos };
 use crate::transpose::{ TranspositionTable };
-use crate::ai::search::{ SearchResult, best_move_with_tt };
+use crate::ai::{SearchConfig, negamax};
 
-// Set max to 1 / 5 of the actual time limit
-const TIMEOUT_MS : u64 = 100;
+/// What the search returns to the caller.
+#[derive(Debug, Clone)]
+pub struct SearchIterationResult {
+    /// The chosen move, or `None` at depth 0 / when no legal moves exist.
+    pub best_move: Option<Pos>,
+    /// Score from the root side-to-move's perspective.
+    pub score: i32,
+    /// Total nodes (including leaves) visited during the search.
+    pub nodes_visited: u64,
+    /// Deepest ply explored during the search.
+    pub max_ply: u32,
+}
+
+/// Run a single fixed-depth negamax search iteration using
+/// alpha-beta pruning and the shared transposition table.
+pub fn search_iteration(
+    game: &mut Game,
+    depth: u32,
+    tt: &mut TranspositionTable,
+    config: &SearchConfig
+) -> SearchIterationResult {
+    let mut nodes = 0u64;
+    let mut max_ply = 0;
+    let (score, mv) = negamax(
+        game,
+        depth,
+        i32::MIN + 1,
+        i32::MAX - 1,
+        tt,
+        &mut nodes,
+        &mut max_ply,
+        0,
+        config
+    );
+
+    SearchIterationResult {
+        best_move: mv,
+        score,
+        nodes_visited: nodes,
+        max_ply
+    }
+}
 
 /// Result returned by iterative deepening search.
 ///
@@ -20,9 +60,11 @@ const TIMEOUT_MS : u64 = 100;
 #[allow(dead_code)]
 pub struct IterativeResult {
     /// Best move search result from the final iteration.
-    pub result: SearchResult,
+    pub result: SearchIterationResult,
     /// Deepest fully completed search depth.
     pub depth_reached: u32,
+    /// Total nodes seached.
+    pub total_nodes: u64,
 }
 
 /// Run iterative deepening negamax search up to `max_depth`.
@@ -41,23 +83,29 @@ pub fn iterative_deepening(
     game: &mut Game,
     max_depth: u32,
     tt_size: usize,
+    config: &SearchConfig,
 ) -> IterativeResult {
     let mut best = None;
-
     let mut tt = TranspositionTable::new(tt_size);
-
+    let mut total_nodes = 0;
     let start = Instant::now();
-    for depth in 1..=max_depth {
-        let result = best_move_with_tt(game, depth, &mut tt);
 
-        let elapsed = start.elapsed();
-        best = Some((depth, result));
+    let start_depth = config
+        .iterative_start_depth
+        .min(max_depth);
 
+    for depth in start_depth..=max_depth {
         // Avoid starting an iteration that is
         // likely to explode exponentially.
-        if elapsed > Duration::from_millis(TIMEOUT_MS) {
+        let elapsed = start.elapsed();
+
+        if elapsed > Duration::from_millis(config.timeout_ms) {
             break;
         }
+
+        let result = search_iteration(game, depth, &mut tt, config);
+        total_nodes += result.nodes_visited;
+        best = Some((depth, result));
     }
 
     let (depth_reached, result) =
@@ -66,6 +114,7 @@ pub fn iterative_deepening(
     IterativeResult {
         result,
         depth_reached,
+        total_nodes
     }
 }
 
@@ -100,11 +149,13 @@ mod tests {
         let mut game = midgame_position();
 
         let before = game.clone();
+        let config = SearchConfig::default();
 
         iterative_deepening(
             &mut game,
             5,
             20,
+            &config
         );
 
         assert_eq!(game.hash(), before.hash());
@@ -149,10 +200,12 @@ mod tests {
 
         game.play_move(3, 9).unwrap();
 
+        let config = SearchConfig::default();
         let result = iterative_deepening(
             &mut game,
             4,
             20,
+            &config
         );
 
         assert_eq!(
@@ -174,15 +227,16 @@ mod tests {
         let direct = best_move(&mut g1, depth, 20);
         let direct_time = start.elapsed();
 
+        let config = SearchConfig::default();
         let start = Instant::now();
-        let iterative = iterative_deepening(&mut g2, depth, 20);
+        let iterative = iterative_deepening(&mut g2, depth, 20, &config);
         let iterative_time = start.elapsed();
 
         println!();
         println!("=== Direct Search ===");
         println!("best move: {:?}", direct.best_move);
         println!("score: {}", direct.score);
-        println!("nodes: {}", direct.nodes_visited);
+        println!("nodes: {}", direct.total_nodes);
         println!("time: {:?}", direct_time);
 
         println!();
@@ -207,13 +261,14 @@ mod tests {
         use std::time::{Duration, Instant};
 
         let mut game = midgame_position();
-
         let start = Instant::now();
 
+        let config = SearchConfig::default();
         let result = iterative_deepening(
             &mut game,
             20,
             20,
+            &config
         );
 
         let elapsed = start.elapsed();
