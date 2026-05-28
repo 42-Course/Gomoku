@@ -630,7 +630,7 @@ impl Game {
     /// of the four directions.
     ///
     /// Packs the 9-cell window centered on the stone into bitmasks and
-    /// hands the detection off to [`crate::patterns::count_patterns`].
+    /// hands the detection off to [`crate::patterns::count_line_patterns`].
     /// Off-board cells fall outside the packed window, so the board edge
     /// acts as a wall — same convention used by [`Game::is_free_three`].
     pub fn check_win(&self, pos: Pos) -> bool {

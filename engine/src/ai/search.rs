@@ -521,35 +521,4 @@ mod tests {
 
         println!("effective branching factor: {:.2}", ebf);
     }
-
-    #[test]
-    fn depth_10_benchmark() {
-        use std::time::Instant;
-
-        let mut game = midgame_position();
-
-        let start = Instant::now();
-
-        let result = best_move(
-            &mut game,
-            10,
-            20,
-        );
-
-        let elapsed = start.elapsed();
-
-        println!();
-        println!("=== Depth 10 Benchmark ===");
-        println!("best move: {:?}", result.best_move);
-        println!("depth reached: {}", result.depth_reached);
-        println!("max_ply: {}", result.max_ply);
-        println!("score: {}", result.score);
-        println!("total_nodes: {}", result.total_nodes);
-        println!("time: {:?}", elapsed);
-
-        let ebf = (result.total_nodes as f64)
-            .powf(1.0 / result.depth_reached as f64);
-
-        println!("effective branching factor: {:.2}", ebf);
-    }
 }

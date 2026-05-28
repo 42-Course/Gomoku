@@ -54,49 +54,6 @@ pub fn search_iteration(
     }
 }
 
-/// What the search returns to the caller.
-#[derive(Debug, Clone)]
-pub struct SearchIterationResult {
-    /// The chosen move, or `None` at depth 0 / when no legal moves exist.
-    pub best_move: Option<Pos>,
-    /// Score from the root side-to-move's perspective.
-    pub score: i32,
-    /// Total nodes (including leaves) visited during the search.
-    pub nodes_visited: u64,
-    /// Deepest ply explored during the search.
-    pub max_ply: u32,
-}
-
-/// Run a single fixed-depth negamax search iteration using
-/// alpha-beta pruning and the shared transposition table.
-pub fn search_iteration(
-    game: &mut Game,
-    depth: u32,
-    tt: &mut TranspositionTable,
-    config: &SearchConfig
-) -> SearchIterationResult {
-    let mut nodes = 0u64;
-    let mut max_ply = 0;
-    let (score, mv) = negamax(
-        game,
-        depth,
-        i32::MIN + 1,
-        i32::MAX - 1,
-        tt,
-        &mut nodes,
-        &mut max_ply,
-        0,
-        config
-    );
-
-    SearchIterationResult {
-        best_move: mv,
-        score,
-        nodes_visited: nodes,
-        max_ply
-    }
-}
-
 /// Result returned by iterative deepening search.
 ///
 /// Contains the best result from the deepest completed iteration.

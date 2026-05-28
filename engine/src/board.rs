@@ -649,9 +649,9 @@ impl Board {
     /// # Examples
     ///
     /// ```ignore
-    /// let mut totals = PatternCounts::default();
+    /// let mut totals = LinePatternCounts::default();
     /// board.for_each_line(Player::Black, 5, |me, opp, len| {
-    ///     totals.add(&count_patterns(me, opp, len));
+    ///     totals.add(&count_line_patterns(me, opp, len));
     /// });
     /// ```
     pub fn for_each_line<F>(&self, player: Player, min_len: u32, mut f: F)

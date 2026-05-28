@@ -8,7 +8,7 @@
 //!
 //! 1. [`Board::for_each_line`] yields every row, column, and diagonal as a
 //!    pair of `(me, opp)` bitmasks plus a length.
-//! 2. [`crate::patterns::count_patterns`] tallies the runs on each line by
+//! 2. [`crate::patterns::count_line_patterns`] tallies the runs on each line by
 //!    length and openness.
 //! 3. [`score_from_counts`] converts the tallies to a single integer using
 //!    the per-pattern weights below.
@@ -24,7 +24,7 @@
 
 use crate::board::Board;
 use crate::game::{Game, GameStatus, Player};
-use crate::patterns::{count_patterns_new, PatternCounts};
+use crate::patterns::{count_board_pattern, BoardPatternCounts};
 
 /// Score returned for a winning terminal position. Mirrors
 /// [`crate::ai::search::WIN_SCORE`] so the two modules can be reasoned
@@ -78,31 +78,31 @@ fn capture_diff(game: &Game, me: Player) -> i32 {
     }
 }
 
-/// Total pattern score for one player across every line on the board.
 // fn score_player(board: &Board, player: Player) -> i32 {
-//     let mut totals = PatternCounts::default();
+//     let mut totals = LinePatternCounts::default();
 //     // No useful pattern fits in fewer than 5 cells — skip stub diagonals.
 //     board.for_each_line(player, 5, |me, opp, len| {
-//         let line = count_patterns(me, opp, len);
+//         let line = count_line_patterns(me, opp, len);
 //         totals.add(&line);
 //     });
 
 //     score_from_counts(&totals)
 // }
 
+/// Total pattern score for one player across every line on the board.
 fn score_player(board: &Board, player: Player) -> i32 {
-    let mut totals = PatternCounts::default();
+    let mut totals = BoardPatternCounts::default();
     let me = board.bits(player);
     let opp = board.bits(player.opponent());
-    let score = count_patterns_new(me, opp);
+    let score = count_board_pattern(me, opp);
     totals.add(&score);
 
     score_from_counts(&totals)
 }
 
-/// Convert a [`PatternCounts`] tally to an integer score using the
+/// Convert a [`BoardPatternCounts`] tally to an integer score using the
 /// per-pattern weights at the top of this module.
-fn score_from_counts(c: &PatternCounts) -> i32 {
+fn score_from_counts(c: &BoardPatternCounts) -> i32 {
     (c.stable_five as i32) * STABLE_FIVE
         + (c.unstable_five as i32) * UNSTABLE_FIVE
         + (c.open_four as i32) * OPEN_FOUR

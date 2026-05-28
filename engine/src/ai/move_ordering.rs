@@ -28,7 +28,7 @@
 //! ```
 use crate::game::{ Direction, Player, Game, GameStatus, Pos };
 use crate::board::Board;
-use crate::patterns::count_patterns;
+use crate::patterns::count_line_patterns;
 
 /// A move paired with its ordering heuristic score.
 #[derive(Debug, Clone, Copy)]
@@ -91,8 +91,8 @@ fn evaluate_threat(game: &Game, pos: Pos, player: Player) -> i32 {
     for dir in Direction::all() {
         let (me, opp, len) = pack_local_line(&game.board, pos, dir, 4, player);
 
-        let patterns = count_patterns(me as u32, opp as u32, len);
-        score += patterns.stable_five as i32 * 100_000;
+        let patterns = count_line_patterns(me as u32, opp as u32, len);
+        score += patterns.fives as i32 * 100_000;
         score += patterns.open_four as i32 * 10_000;
         score += patterns.closed_four as i32 * 2_000;
         score += patterns.open_three as i32 * 500;

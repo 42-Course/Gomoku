@@ -16,11 +16,11 @@
 //!
 //! Packed-line (`u32`) helpers:
 //!
-//! - [`count_patterns`] — tally every maximal run on a line by length and
+//! - [`count_line_patterns`] — tally every maximal run on a line by length and
 //!   openness.
 //! - [`has_free_three`] — yes/no check for the four free-three shapes,
 //!   used by the double-three rule.
-//! - [`PatternCounts`] — the tally type produced by [`count_patterns`].
+//! - [`LinePatternCounts`] — the tally type produced by [`count_line_patterns`].
 //!
 //! Whole-board ([`BitBoard`]) helpers:
 //!
@@ -45,11 +45,9 @@ use crate::board::BitBoard;
 /// "Open" runs have empty cells on both sides; "closed" runs have an
 /// opponent stone or the board edge on exactly one side.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
-pub struct PatternCounts {
-    pub stable_five: u32,
-    pub unstable_five: u32,
+pub struct LinePatternCounts {
     /// Runs of 5 or more in a row.
-    // pub fives: u32,
+    pub fives: u32,
     /// 4-runs with empty cells on both sides.
     pub open_four: u32,
     /// 4-runs with one side blocked.
@@ -64,13 +62,43 @@ pub struct PatternCounts {
     pub closed_two: u32,
 }
 
-impl PatternCounts {
+impl LinePatternCounts {
     /// Add the counts in `rhs` to `self` field-by-field.
-    pub fn add(&mut self, rhs: &PatternCounts) {
+    pub fn add(&mut self, rhs: &LinePatternCounts) {
+        self.fives += rhs.fives;
+        self.open_four += rhs.open_four;
+        self.closed_four += rhs.closed_four;
+        self.open_three += rhs.open_three;
+        self.closed_three += rhs.closed_three;
+        self.open_two += rhs.open_two;
+        self.closed_two += rhs.closed_two;
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct BoardPatternCounts {
+    pub stable_five: u32,
+    pub unstable_five: u32,
+    /// 4-runs with empty cells on both sides.
+    pub open_four: u32,
+    /// 4-runs with one side blocked.
+    pub closed_four: u32,
+    /// 3-runs with empty cells on both sides.
+    pub open_three: u32,
+    /// 3-runs with one side blocked.
+    pub closed_three: u32,
+    /// 2-runs with empty cells on both sides.
+    pub open_two: u32,
+    /// 2-runs with one side blocked.
+    pub closed_two: u32,
+}
+
+impl BoardPatternCounts {
+    /// Add the counts in `rhs` to `self` field-by-field.
+    pub fn add(&mut self, rhs: &BoardPatternCounts) {
 
         self.stable_five += rhs.stable_five;
         self.unstable_five += rhs.unstable_five;
-        // self.fives += rhs.fives;
         self.open_four += rhs.open_four;
         self.closed_four += rhs.closed_four;
         self.open_three += rhs.open_three;
@@ -168,7 +196,6 @@ pub fn classify_fives(me: BitBoard, dir: Direction, capturable: BitBoard) -> (u3
     }
 
     let stable_starts = starts & !killed;
-    let unstable_starts = starts & killed;
 
     while starts.any() {
         // Start one connected 5+ group.
@@ -206,36 +233,14 @@ pub fn classify_fives(me: BitBoard, dir: Direction, capturable: BitBoard) -> (u3
     (stable, unstable)
 }
 
-/// Walk one packed line and tally every distinct run by length and openness.
-///
-/// Each maximal run contributes to exactly one bucket — a 5-run is a
-/// `fives`, *not* additionally a `closed_four` plus a `closed_three`. Runs
-/// shorter than two cells are ignored.
-///
-/// # Arguments
-///
-/// - `me`  — bits of the player whose patterns we're tallying.
-/// - `opp` — bits of the opponent.
-/// - `len` — number of cells in the packed line (`<= 19`).
-///
-/// # Examples
-///
-/// ```ignore
-/// // ".XXXX." has one open four.
-/// let me  = 0b011110;
-/// let opp = 0;
-/// let counts = count_patterns(me, opp, 6);
-/// assert_eq!(counts.open_four, 1);
-/// ```
-
-pub fn count_patterns_new(
+pub fn count_board_pattern(
     me: BitBoard,
     opp: BitBoard,
-) -> PatternCounts {
+) -> BoardPatternCounts {
     let capturable =
         capturable_mask(me, opp);
 
-    let mut res = PatternCounts::default();
+    let mut res = BoardPatternCounts::default();
 
     for dir in Direction::all() {
         let (stable_five, unstable_five) = classify_fives(me, dir, capturable);
@@ -255,7 +260,29 @@ pub fn count_patterns_new(
     }
     res
 }
-pub fn count_patterns(me: u32, opp: u32, len: u32) -> PatternCounts {
+
+/// Walk one packed line and tally every distinct run by length and openness.
+///
+/// Each maximal run contributes to exactly one bucket — a 5-run is a
+/// `fives`, *not* additionally a `closed_four` plus a `closed_three`. Runs
+/// shorter than two cells are ignored.
+///
+/// # Arguments
+///
+/// - `me`  — bits of the player whose patterns we're tallying.
+/// - `opp` — bits of the opponent.
+/// - `len` — number of cells in the packed line (`<= 19`).
+///
+/// # Examples
+///
+/// ```ignore
+/// // ".XXXX." has one open four.
+/// let me  = 0b011110;
+/// let opp = 0;
+/// let counts = count_line_patterns(me, opp, 6);
+/// assert_eq!(counts.open_four, 1);
+/// ```
+pub fn count_line_patterns(me: u32, opp: u32, len: u32) -> LinePatternCounts {
     let mask = line_mask(len);
     let m = me & mask;
     let o = opp & mask;
@@ -282,9 +309,8 @@ pub fn count_patterns(me: u32, opp: u32, len: u32) -> PatternCounts {
     let (open_three, closed_three) = split(three, 3);
     let (open_two, closed_two) = split(two, 2);
 
-    PatternCounts {
-        stable_five: fives,
-        unstable_five: 0,
+    LinePatternCounts {
+        fives,
         open_four,
         closed_four,
         open_three,
@@ -517,47 +543,47 @@ mod tests {
         (me, opp, s.chars().count() as u32)
     }
 
-    // #[test]
-    // fn five_in_a_row_is_a_five() {
-    //     let (m, o, l) = line(".XXXXX.");
-    //     let c = count_patterns(m, o, l);
-    //     assert_eq!(c.fives, 1);
-    //     // The 5-run isn't double-counted as smaller runs.
-    //     assert_eq!(c.open_four, 0);
-    //     assert_eq!(c.closed_four, 0);
-    // }
+    #[test]
+    fn five_in_a_row_is_a_five() {
+        let (m, o, l) = line(".XXXXX.");
+        let c = count_line_patterns(m, o, l);
+        assert_eq!(c.fives, 1);
+        // The 5-run isn't double-counted as smaller runs.
+        assert_eq!(c.open_four, 0);
+        assert_eq!(c.closed_four, 0);
+    }
 
-    // #[test]
-    // fn open_four_pattern() {
-    //     let (m, o, l) = line("..XXXX..");
-    //     let c = count_patterns(m, o, l);
-    //     assert_eq!(c.open_four, 1);
-    //     assert_eq!(c.closed_four, 0);
-    // }
+    #[test]
+    fn open_four_pattern() {
+        let (m, o, l) = line("..XXXX..");
+        let c = count_line_patterns(m, o, l);
+        assert_eq!(c.open_four, 1);
+        assert_eq!(c.closed_four, 0);
+    }
 
-    // #[test]
-    // fn closed_four_blocked_by_opponent() {
-    //     let (m, o, l) = line("OXXXX..");
-    //     let c = count_patterns(m, o, l);
-    //     assert_eq!(c.open_four, 0);
-    //     assert_eq!(c.closed_four, 1);
-    // }
+    #[test]
+    fn closed_four_blocked_by_opponent() {
+        let (m, o, l) = line("OXXXX..");
+        let c = count_line_patterns(m, o, l);
+        assert_eq!(c.open_four, 0);
+        assert_eq!(c.closed_four, 1);
+    }
 
-    // #[test]
-    // fn closed_four_blocked_by_edge() {
-    //     let (m, o, l) = line("XXXX..");
-    //     let c = count_patterns(m, o, l);
-    //     assert_eq!(c.closed_four, 1);
-    //     assert_eq!(c.open_four, 0);
-    // }
+    #[test]
+    fn closed_four_blocked_by_edge() {
+        let (m, o, l) = line("XXXX..");
+        let c = count_line_patterns(m, o, l);
+        assert_eq!(c.closed_four, 1);
+        assert_eq!(c.open_four, 0);
+    }
 
-    // #[test]
-    // fn open_three_and_open_two() {
-    //     let (m, o, l) = line("..XX...XXX..");
-    //     let c = count_patterns(m, o, l);
-    //     assert_eq!(c.open_two, 1);
-    //     assert_eq!(c.open_three, 1);
-    // }
+    #[test]
+    fn open_three_and_open_two() {
+        let (m, o, l) = line("..XX...XXX..");
+        let c = count_line_patterns(m, o, l);
+        assert_eq!(c.open_two, 1);
+        assert_eq!(c.open_three, 1);
+    }
 
     #[test]
     fn solid_three_is_a_free_three() {
@@ -854,5 +880,418 @@ mod tests {
         assert!(
             has_stable_five(me, opp)
         );
+    }
+
+    #[test]
+    fn exact_four_detected_once() {
+        let stones = bb(&[
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+        ]);
+
+        let (open, closed) = split_runs(
+            stones,
+            BitBoard::new(),
+            Direction::Horizontal,
+            4,
+        );
+
+        assert_eq!(open.count_ones(), 0);
+        assert_eq!(closed.count_ones(), 1);
+    }
+
+    #[test]
+    fn open_four_detected() {
+        let stones = bb(&[
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+        ]);
+
+        let (open, closed) = split_runs(
+            stones,
+            BitBoard::new(),
+            Direction::Horizontal,
+            4,
+        );
+
+        assert_eq!(open.count_ones(), 1);
+        assert_eq!(closed.count_ones(), 0);
+    }
+
+    #[test]
+    fn six_in_row_not_counted_as_four() {
+        let stones = bb(&[
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+            (5, 0),
+        ]);
+
+        let (open, closed) = split_runs(
+            stones,
+            BitBoard::new(),
+            Direction::Horizontal,
+            4,
+        );
+
+        assert_eq!(open.count_ones(), 0);
+        assert_eq!(closed.count_ones(), 0);
+    }
+
+    // #[test]
+    // fn exact_five_detected_once() {
+    //     let stones = bb(&[
+    //         (0, 0),
+    //         (1, 0),
+    //         (2, 0),
+    //         (3, 0),
+    //         (4, 0),
+    //     ]);
+
+    //     let starts = run_starts(
+    //         stones,
+    //         Direction::Horizontal,
+    //         5,
+    //     );
+
+    //     assert_eq!(starts.count_ones(), 1);
+    // }
+
+    // #[test]
+    // fn six_in_row_not_double_counted_as_two_fives() {
+    //     let stones = bb(&[
+    //         (0, 0),
+    //         (1, 0),
+    //         (2, 0),
+    //         (3, 0),
+    //         (4, 0),
+    //         (5, 0),
+    //     ]);
+
+    //     let starts = run_starts(
+    //         stones,
+    //         Direction::Horizontal,
+    //         5,
+    //     );
+
+    //     assert_eq!(starts.count_ones(), 0);
+    // }
+
+    #[test]
+    fn stable_and_unstable_fives_are_classified() {
+        //
+        // X X X X X X
+        // X
+        // O
+        //
+        // One embedded five is unstable because of the
+        // capturable pair at x=0, but the shifted five
+        // remains stable.
+        //
+        let me = bb(&[
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (5, 1),
+            (0, 2),
+        ]);
+
+        let opp = bb(&[
+            (0, 3),
+        ]);
+
+        let capturable =
+            capturable_mask(me, opp);
+
+        let (stable, unstable) =
+            classify_fives(
+                me,
+                Direction::Horizontal,
+                capturable,
+            );
+
+        assert_eq!(stable, 1);
+        assert_eq!(unstable, 0);
+    }
+
+    #[test]
+    fn free_three_detected_horizontal() {
+        //
+        // . X X X . .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+            (3, 0),
+        ]);
+
+        let mask = free_three_mask(
+            me,
+            BitBoard::new(),
+            Direction::Horizontal,
+        );
+
+        assert_eq!(mask.count_ones(), 1);
+    }
+
+    #[test]
+    fn split_free_three_detected() {
+        //
+        // . X X . X .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+            (4, 0),
+        ]);
+
+        let mask = free_three_mask(
+            me,
+            BitBoard::new(),
+            Direction::Horizontal,
+        );
+
+        assert_eq!(mask.count_ones(), 1);
+    }
+
+    #[test]
+    fn blocked_three_is_not_free_three() {
+        //
+        // O X X X . .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+            (3, 0),
+        ]);
+
+        let opp = bb(&[
+            (0, 0),
+        ]);
+
+        let mask = free_three_mask(
+            me,
+            opp,
+            Direction::Horizontal,
+        );
+
+        assert_eq!(mask.count_ones(), 0);
+    }
+
+    #[test]
+    fn board_patterns_detect_open_four() {
+        //
+        // . X X X X .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.open_four, 1);
+        assert_eq!(res.closed_four, 0);
+    }
+
+    #[test]
+    fn board_patterns_detect_closed_four() {
+        //
+        // O X X X X .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+        ]);
+
+        let opp = bb(&[
+            (0, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                opp,
+            );
+
+        assert_eq!(res.open_four, 0);
+        assert_eq!(res.closed_four, 1);
+    }
+
+    #[test]
+    fn board_patterns_detect_open_three() {
+        //
+        // . X X X .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+            (3, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.open_three, 1);
+        assert_eq!(res.closed_three, 0);
+    }
+
+    #[test]
+    fn board_patterns_detect_open_two() {
+        //
+        // . X X .
+        //
+        let me = bb(&[
+            (1, 0),
+            (2, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.open_two, 1);
+        assert_eq!(res.closed_two, 0);
+    }
+
+    #[test]
+    fn board_patterns_do_not_count_four_inside_five() {
+        //
+        // X X X X X
+        //
+        let me = bb(&[
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.open_four, 0);
+        assert_eq!(res.closed_four, 0);
+    }
+
+    #[test]
+    fn board_patterns_do_not_count_three_inside_four() {
+        //
+        // X X X X
+        //
+        let me = bb(&[
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.open_three, 0);
+        assert_eq!(res.closed_three, 0);
+    }
+
+    #[test]
+    fn board_patterns_detect_stable_five() {
+        let me = bb(&[
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.stable_five, 1);
+        assert_eq!(res.unstable_five, 0);
+    }
+
+    #[test]
+    fn board_patterns_detect_unstable_five() {
+        //
+        // .
+        // X X X X X
+        // X
+        // O
+        //
+        let me = bb(&[
+            (0, 1),
+            (1, 1),
+            (2, 1),
+            (3, 1),
+            (4, 1),
+            (0, 2),
+        ]);
+
+        let opp = bb(&[
+            (0, 3),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                opp,
+            );
+
+        assert_eq!(res.stable_five, 0);
+        assert_eq!(res.unstable_five, 1);
+    }
+
+    #[test]
+    fn board_patterns_merge_six_into_one_five() {
+        //
+        // X X X X X X
+        //
+        let me = bb(&[
+            (0, 0),
+            (1, 0),
+            (2, 0),
+            (3, 0),
+            (4, 0),
+            (5, 0),
+        ]);
+
+        let res =
+            count_board_pattern(
+                me,
+                BitBoard::new(),
+            );
+
+        assert_eq!(res.stable_five, 1);
+        assert_eq!(res.unstable_five, 0);
     }
 }
