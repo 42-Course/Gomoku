@@ -96,10 +96,10 @@ impl TranspositionTable {
     ///
     /// Returns `None` if the slot is empty or contains a different hash
     /// due to collision replacement.
-    pub fn get(&self, hash: u64) -> Option<&TTEntry> {
+    pub fn get(&self, hash: u64) -> Option<TTEntry> {
         let entry = &self.entries[(hash as usize) & self.mask];
         if entry.key == hash {
-            Some(entry)
+            Some(*entry)
         } else {
             None
         }

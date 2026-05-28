@@ -21,6 +21,7 @@
 
 #![allow(dead_code)]
 
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::ai::SearchConfig;
@@ -92,7 +93,8 @@ pub fn negamax(
     depth: u32,
     mut alpha: i32,
     mut beta: i32,
-    tt: &mut TranspositionTable,
+    // tt: &mut TranspositionTable,
+    tt_handle: &Arc<RwLock<TranspositionTable>>,
     nodes: &mut u64,
     max_ply: &mut u32,
     ply: u32,
@@ -106,7 +108,10 @@ pub fn negamax(
     let original_beta = beta;
     // Probe TT before searching children. Exact scores may terminate the
     // search immediately; lower/upper bounds may tighten the search window.
-    let tt_entry = tt.get(game.hash());
+    let tt_entry = {
+        let tt = tt_handle.read().unwrap();
+        tt.get(game.hash())
+    };
     if let Some(entry) = tt_entry {
         if entry.depth >= depth as i32 {
             match entry.flag {
@@ -174,7 +179,7 @@ pub fn negamax(
             search_depth,
             -beta,
             -alpha,
-            tt,
+            tt_handle,
             nodes,
             max_ply,
             ply + 1,
@@ -191,7 +196,7 @@ pub fn negamax(
                     depth - 1,
                     -beta,
                     -alpha,
-                    tt,
+                    tt_handle,
                     nodes,
                     max_ply,
                     ply + 1,
@@ -224,13 +229,17 @@ pub fn negamax(
         Bound::Exact
     };
 
-    tt.insert(game.hash(), TTEntry {
-        key: game.hash(),
-        depth: depth as i32,
-        score: best_score,
-        flag,
-        best_move: best_mv,
-    });
+    {
+        let mut tt_guard = tt_handle.write().unwrap();
+
+        tt_guard.insert(game.hash(), TTEntry {
+            key: game.hash(),
+            depth: depth as i32,
+            score: best_score,
+            flag,
+            best_move: best_mv,
+        });
+    }
 
     (best_score, best_mv)
 }

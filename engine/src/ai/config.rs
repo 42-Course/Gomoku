@@ -1,4 +1,5 @@
 /// Runtime configuration for search heuristics and limits.
+#[derive(Clone, Copy)]
 pub struct SearchConfig {
     /// Enable Late Move Reductions during search.
     pub enable_lmr: bool,

@@ -7,9 +7,12 @@
 //! TT reuse, reducing the explored search tree and improving pruning
 //! efficiency at larger depths.
 use std::time::{Duration, Instant};
+use std::sync::{Arc, RwLock};
 use crate::game::{ Game, Pos };
 use crate::transpose::{ TranspositionTable };
 use crate::ai::{SearchConfig, negamax};
+use crate::ai::eval::evaluate;
+use crate::ai::move_ordering::order_moves;
 
 /// What the search returns to the caller.
 #[derive(Debug, Clone)]
@@ -29,7 +32,8 @@ pub struct SearchIterationResult {
 pub fn search_iteration(
     game: &mut Game,
     depth: u32,
-    tt: &mut TranspositionTable,
+    // tt: &mut TranspositionTable,
+    tt_handle: &Arc<RwLock<TranspositionTable>>,
     config: &SearchConfig
 ) -> SearchIterationResult {
     let mut nodes = 0u64;
@@ -39,7 +43,7 @@ pub fn search_iteration(
         depth,
         i32::MIN + 1,
         i32::MAX - 1,
-        tt,
+        tt_handle,
         &mut nodes,
         &mut max_ply,
         0,
@@ -51,6 +55,108 @@ pub fn search_iteration(
         score,
         nodes_visited: nodes,
         max_ply
+    }
+}
+
+pub fn root_distribution(
+    game: &mut Game,
+    depth: u32,
+    shared_tt: Arc<RwLock<TranspositionTable>>,
+    config: &SearchConfig,
+) -> SearchIterationResult {
+    let moves = game.generate_moves();
+
+    if moves.is_empty() {
+        return SearchIterationResult {
+            best_move: None,
+            score: evaluate(game),
+            nodes_visited: 0,
+            max_ply: 0,
+        };
+    }
+
+    let ordered_moves =
+        order_moves(
+            game,
+            moves,
+            None,
+        );
+
+    let mut handles = Vec::new();
+
+    for mv in ordered_moves {
+        let mut cloned =
+            game.clone();
+
+        if cloned.play_pos(mv).is_err() {
+            continue;
+        }
+
+        let shared_tt =
+            Arc::clone(&shared_tt);
+
+        let config =
+            config.clone();
+
+        handles.push(
+            std::thread::spawn(move || {
+                let mut nodes = 0u64;
+                let mut max_ply = 0;
+
+                let (child_score, _) =
+                    negamax(
+                        &mut cloned,
+                        depth - 1,
+                        i32::MIN + 1,
+                        i32::MAX - 1,
+                        &shared_tt,
+                        &mut nodes,
+                        &mut max_ply,
+                        1,
+                        &config,
+                    );
+
+                (
+                    mv,
+                    -child_score,
+                    nodes,
+                    max_ply,
+                )
+            })
+        );
+    }
+
+    let mut best_score =
+        i32::MIN + 1;
+
+    let mut best_move = None;
+
+    let mut total_nodes = 0;
+    let mut deepest_ply = 0;
+
+    for handle in handles {
+        let (
+            mv,
+            score,
+            nodes,
+            max_ply,
+        ) = handle.join().unwrap();
+
+        total_nodes += nodes;
+        deepest_ply =
+            deepest_ply.max(max_ply);
+
+        if score > best_score {
+            best_score = score;
+            best_move = Some(mv);
+        }
+    }
+
+    SearchIterationResult {
+        best_move,
+        score: best_score,
+        nodes_visited: total_nodes,
+        max_ply: deepest_ply,
     }
 }
 
@@ -86,7 +192,10 @@ pub fn iterative_deepening(
     config: &SearchConfig,
 ) -> IterativeResult {
     let mut best = None;
-    let mut tt = TranspositionTable::new(tt_size);
+    let tt = Arc::new(RwLock::new(
+        TranspositionTable::new(tt_size),
+    ));
+    // let mut tt = TranspositionTable::new(tt_size);
     let mut total_nodes = 0;
     let start = Instant::now();
 
@@ -103,7 +212,7 @@ pub fn iterative_deepening(
             break;
         }
 
-        let result = search_iteration(game, depth, &mut tt, config);
+        let result = root_distribution(game, depth, Arc::clone(&tt), config);
         total_nodes += result.nodes_visited;
         best = Some((depth, result));
     }
