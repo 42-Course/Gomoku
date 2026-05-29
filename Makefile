@@ -1,4 +1,4 @@
-.PHONY: wasm dev build clean test
+.PHONY: all wasm dev build test watch clean fclean re
 
 all: build
 
@@ -29,3 +29,5 @@ watch:
 	fi
 	cargo watch -w engine -w engine-wasm \
 		-s 'cd engine-wasm && ./build.sh web dev'
+
+re: fclean all
