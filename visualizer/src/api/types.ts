@@ -109,7 +109,13 @@ export interface Analysis {
    * What the engine recorded when it actually played this move, if it was an
    * AI move. Shown alongside the fresh automatic analysis so the review can
    * compare "what the AI decided then" against "what the engine thinks now".
-   * The recorded chosen move is `chosen` (the move that was played).
+   * Carries the move the AI played and the time it spent, plus its search
+   * counters.
    */
-  recorded?: MoveAnalysis;
+  recorded?: MoveAnalysis & {
+    /** The move the AI actually played. */
+    chosen: Coord;
+    /** Time the AI spent choosing it. */
+    thinkMs: number;
+  };
 }

@@ -60,9 +60,17 @@ export function Play() {
   const id = params.get("id");
   const queryClient = useQueryClient();
 
-  // One engine instance for the lifetime of this page.
+  // One engine instance for the lifetime of this page, fetched through a
+  // getter rather than captured in a variable. The cleanup below disposes
+  // the worker on unmount; under StrictMode React unmounts and *re-mounts*
+  // the effects without re-rendering, so a captured instance would be a dead
+  // (terminated) worker and every `engine.play(...)` would hang forever.
+  // Re-creating lazily here hands the re-run effects a live engine instead.
   const engineRef = useRef<EngineClient | null>(null);
-  if (!engineRef.current) engineRef.current = new EngineClient();
+  const ensureEngine = useCallback(() => {
+    if (!engineRef.current) engineRef.current = new EngineClient();
+    return engineRef.current;
+  }, []);
   useEffect(
     () => () => {
       engineRef.current?.dispose();
@@ -70,7 +78,6 @@ export function Play() {
     },
     [],
   );
-  const engine = engineRef.current;
 
   const [game, setGame] = useState<Game | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -122,8 +129,13 @@ export function Play() {
         return;
       }
       try {
+        // Capture one engine for this run so a cancelled StrictMode pass keeps
+        // replaying into its own (soon-to-be-disposed) instance instead of
+        // racing the surviving run's engine.
+        const eng = ensureEngine();
         for (const m of g.moves) {
-          await engine.play(m.coord.x, m.coord.y);
+          if (cancelled) return;
+          await eng.play(m.coord.x, m.coord.y);
         }
         if (cancelled) return;
         setGame(g);
@@ -140,7 +152,7 @@ export function Play() {
     return () => {
       cancelled = true;
     };
-  }, [id, engine, navigate]);
+  }, [id, ensureEngine, navigate]);
 
   const board: BoardGrid = useMemo(
     () => (moves.length === 0 ? emptyBoard() : boardAtMove(moves, moves.length - 1)),
@@ -213,7 +225,7 @@ export function Play() {
       analysis?: MoveAnalysis,
     ) => {
       const before = performance.now();
-      const result = await engine.play(x, y);
+      const result = await ensureEngine().play(x, y);
       const elapsed = thinkMs > 0 ? thinkMs : performance.now() - before;
       setMoves((prev) => [
         ...prev,
@@ -230,7 +242,7 @@ export function Play() {
       setStatus(result.status);
       setCaptures({ black: result.captures[0], white: result.captures[1] });
     },
-    [currentPlayer, engine],
+    [currentPlayer, ensureEngine],
   );
 
   /** Run a search at the current position and update the panel. */
@@ -241,7 +253,7 @@ export function Play() {
         analysisDepth,
         game?.aiTimeoutMs ?? DEFAULT_ANY_BUDGET_MS,
       );
-      const { result, thinkMs } = await engine.bestMove(depth, timeoutMs);
+      const { result, thinkMs } = await ensureEngine().bestMove(depth, timeoutMs);
       setAnalysis({
         id: `play_${Date.now()}`,
         gameId: game?.id ?? "play",
@@ -259,18 +271,18 @@ export function Play() {
     } finally {
       setAnalysisLoading(false);
     }
-  }, [engine, game?.id, game?.aiTimeoutMs, analysisDepth, moves.length]);
+  }, [ensureEngine, game?.id, game?.aiTimeoutMs, analysisDepth, moves.length]);
 
   /** Ask the engine for a move suggestion (one-shot, no panel update). */
   const runSuggest = useCallback(async () => {
     try {
       const { depth, timeoutMs } = searchBudget(suggestDepth);
-      const { result } = await engine.bestMove(depth, timeoutMs);
+      const { result } = await ensureEngine().bestMove(depth, timeoutMs);
       if (result.move) setSuggestion({ x: result.move.x, y: result.move.y });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [engine, suggestDepth]);
+  }, [ensureEngine, suggestDepth]);
 
   /**
    * Trigger an AI reply when it's the AI's turn. Refreshes analysis
@@ -286,7 +298,7 @@ export function Play() {
         game.aiDepth ?? ANALYSIS_DEPTH,
         game.aiTimeoutMs ?? DEFAULT_ANY_BUDGET_MS,
       );
-      const { result } = await engine.bestMove(depth, timeoutMs);
+      const { result } = await ensureEngine().bestMove(depth, timeoutMs);
       const elapsed = performance.now() - t0;
       if (result.move) {
         // Capture what the engine evaluated so the review screen can show
@@ -305,7 +317,7 @@ export function Play() {
     } finally {
       setBusy(false);
     }
-  }, [currentPlayer, engine, game, isOver, playMove]);
+  }, [currentPlayer, ensureEngine, game, isOver, playMove]);
 
   // After every move settles, clear the stale suggestion and pump the AI turn.
   // Auto-analysis is handled by its own progressive effect below.
@@ -347,9 +359,9 @@ export function Play() {
       let budget = AUTO_START_BUDGET_MS;
       let first = true;
       while (!cancelled) {
-        let res: Awaited<ReturnType<typeof engine.bestMove>>;
+        let res: Awaited<ReturnType<EngineClient["bestMove"]>>;
         try {
-          res = await engine.bestMove(ANY_DEPTH, budget);
+          res = await ensureEngine().bestMove(ANY_DEPTH, budget);
         } catch (e) {
           if (!cancelled) setError(e instanceof Error ? e.message : String(e));
           break;
@@ -383,7 +395,7 @@ export function Play() {
     return () => {
       cancelled = true;
     };
-  }, [autoAnalyze, restored, isOver, moves.length, currentPlayer, game, engine]);
+  }, [autoAnalyze, restored, isOver, moves.length, currentPlayer, game, ensureEngine]);
 
   const onCellClick = async (c: Coord) => {
     if (busy || isOver || !game) return;
@@ -408,11 +420,11 @@ export function Play() {
       const popCount =
         game.mode === "vsai" && moves.length >= 2 ? 2 : 1;
       for (let i = 0; i < popCount; i++) {
-        await engine.undo();
+        await ensureEngine().undo();
       }
       setMoves((prev) => prev.slice(0, prev.length - popCount));
       setStatus({ kind: "ongoing" });
-      const snap = await engine.snapshot();
+      const snap = await ensureEngine().snapshot();
       setCaptures({ black: snap.captures[0], white: snap.captures[1] });
       setAnalysis(null);
     } catch (e) {

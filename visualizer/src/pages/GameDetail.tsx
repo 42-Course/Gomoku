@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowLeft, Circle, Clock } from "lucide-react";
+import type { Analysis } from "@/api/types";
 import { getAnalysis, getGame, queryKeys } from "@/api/client";
 import { boardAtMove, emptyBoard } from "@/api/fixtures";
 import { Board } from "@/components/Board";
@@ -12,10 +13,10 @@ import { TimelineScrubber } from "@/components/TimelineScrubber";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
 import { useGameView } from "@/store/gameView";
 import { coordLabel, formatMs } from "@/lib/format";
+import { ANY_DEPTH, AUTO_MAX_BUDGET_MS, AUTO_START_BUDGET_MS } from "@/lib/search";
 
 export function GameDetail() {
   const { id = "" } = useParams();
-  const queryClient = useQueryClient();
 
   const { data: game, isLoading } = useQuery({
     queryKey: queryKeys.game(id),
@@ -83,15 +84,59 @@ export function GameDetail() {
     selectedMoveIndex >= 0 &&
     (wasAiMove || userRequested || autoAnalyze);
 
-  const analysisQuery = useQuery({
-    queryKey: queryKeys.analysis(id, selectedMoveIndex),
-    queryFn: () => getAnalysis(id, selectedMoveIndex),
-    enabled: analysisEnabled,
-  });
+  /**
+   * Progressive automatic analysis for the selected move. While enabled, keep
+   * re-searching the position with a doubling time budget so the result gets
+   * better and better, updating the panel each pass. Selecting another move
+   * cancels and restarts. `getAnalysis` also attaches the AI's recorded eval
+   * (when the move was an AI move) so the panel can show both then and now.
+   */
+  const [analysis, setAnalysis] = useState<Analysis | null>(null);
+  const [analyzing, setAnalyzing] = useState(false);
+
+  useEffect(() => {
+    if (!analysisEnabled || selectedMoveIndex < 0) {
+      setAnalysis(null);
+      setAnalyzing(false);
+      return;
+    }
+    let cancelled = false;
+    const idx = selectedMoveIndex;
+    void (async () => {
+      setAnalyzing(true);
+      let budget = AUTO_START_BUDGET_MS;
+      let first = true;
+      while (!cancelled) {
+        let a: Analysis | null;
+        try {
+          a = await getAnalysis(id, idx, { depth: ANY_DEPTH, timeoutMs: budget });
+        } catch {
+          break;
+        }
+        if (cancelled) return;
+        if (!a) {
+          setAnalysis(null);
+          break;
+        }
+        setAnalysis(a);
+        if (first) {
+          setAnalyzing(false);
+          first = false;
+        }
+        // Stop once we hit the budget cap — re-running it would just repeat.
+        if (budget >= AUTO_MAX_BUDGET_MS) break;
+        budget = Math.min(budget * 2, AUTO_MAX_BUDGET_MS);
+      }
+      if (!cancelled) setAnalyzing(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, selectedMoveIndex, analysisEnabled]);
 
   /**
    * Trigger analysis for the current move. Marking it requested flips the
-   * `enabled` predicate, which makes react-query fetch on the next render.
+   * `analysisEnabled` predicate, which starts the progressive effect above.
    * Idempotent; safe to call when an analysis already exists.
    */
   const triggerAnalyze = () => {
@@ -101,9 +146,6 @@ export function GameDetail() {
       const next = new Set(prev);
       next.add(selectedMoveIndex);
       return next;
-    });
-    queryClient.invalidateQueries({
-      queryKey: queryKeys.analysis(id, selectedMoveIndex),
     });
   };
 
@@ -150,14 +192,11 @@ export function GameDetail() {
           <div className="flex items-stretch gap-2">
             {showEvalBar && (
               <EvalBar
-                rootScore={analysisQuery.data?.rootScore ?? null}
-                rootSide={
-                  selectedMove
-                    ? selectedMove.player === "black"
-                      ? "white"
-                      : "black"
-                    : "black"
-                }
+                rootScore={analysis?.rootScore ?? null}
+                // The analysis searches the position *before* this move, so the
+                // root side-to-move (whose frame `rootScore` is in) is the
+                // player who made the move — not the side to move after it.
+                rootSide={selectedMove ? selectedMove.player : "black"}
               />
             )}
             <div className="min-w-0 flex-1">
@@ -208,8 +247,8 @@ export function GameDetail() {
 
         <div className="flex min-w-0 flex-col gap-3 xl:overflow-y-auto">
           <AnalysisPanel
-            analysis={analysisQuery.data}
-            isLoading={analysisEnabled && analysisQuery.isFetching}
+            analysis={analysis}
+            isLoading={analyzing}
             canAnalyze={canAnalyze}
             autoAnalyze={autoAnalyze}
             onAnalyze={triggerAnalyze}

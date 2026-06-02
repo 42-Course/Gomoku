@@ -100,6 +100,7 @@ export function AnalysisPanel({
             <Clock className="size-3.5 text-accent-2" /> When the AI played it
           </div>
           <div className="grid grid-cols-2 gap-3 p-3 text-xs">
+            <Stat label="chosen" value={coordLabel(analysis.recorded.chosen)} mono />
             <Stat label="score" value={formatScore(analysis.recorded.score)} mono />
             <Stat
               label="depth"
@@ -112,6 +113,7 @@ export function AnalysisPanel({
               value={analysis.recorded.nodesVisited.toLocaleString()}
               mono
             />
+            <Stat label="think" value={formatMs(analysis.recorded.thinkMs)} mono />
           </div>
         </>
       )}
