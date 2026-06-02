@@ -247,6 +247,21 @@ pub fn negamax(
 /// assert_eq!(result.best_move, Some((9, 9))); // center on empty board
 /// ```
 pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
+    best_move_with(game, depth, tt_size, &SearchConfig::default())
+}
+
+/// Like [`best_move`], but with a caller-supplied [`SearchConfig`].
+///
+/// This is the entry point the browser uses so it can set its own time
+/// budget (`config.timeout_ms`): a fixed depth runs to completion under a
+/// generous budget, while an "any depth" request passes a very large
+/// `depth` and lets the budget decide how far iterative deepening gets.
+pub fn best_move_with(
+    game: &mut Game,
+    depth: u32,
+    tt_size: usize,
+    config: &SearchConfig,
+) -> SearchResult {
     // On the empty board every cell evaluates identically, so a normal
     // search just picks the lowest-indexed candidate. Open from a random
     // cell inside the central 3×3 instead — varied enough to make
@@ -271,9 +286,7 @@ pub fn best_move(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
         };
     }
 
-    let config = SearchConfig::default();
-
-    let res = iterative_deepening(game, depth, tt_size, &config);
+    let res = iterative_deepening(game, depth, tt_size, config);
     SearchResult {
         best_move: res.result.best_move,
         score: res.result.score,
@@ -465,9 +478,6 @@ mod tests {
         let r1 = best_move(&mut g1, 6, 0);
         let r2 = best_move(&mut g2, 6, 20);
 
-        println!("no TT nodes: {}", r1.total_nodes);
-        println!("TT nodes: {}", r2.total_nodes);
-
         assert!(r2.total_nodes < r1.total_nodes);
     }
 
@@ -479,46 +489,23 @@ mod tests {
         let r1 = best_move(&mut g1, 4, 0);
         let r2 = best_move(&mut g2, 4, 20);
 
-        println!("no TT best move: {}", r1.best_move.unwrap());
-        println!("TT best move: {}", r2.best_move.unwrap());
-
         assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
         assert_eq!(r1.score, r2.score, "score differs with TT");
-
-        println!("no TT nodes: {}", r1.total_nodes);
-        println!("TT nodes: {}", r2.total_nodes);
 
         assert!(r2.total_nodes < r1.total_nodes);
     }
 
     #[test]
-    fn depth_10_benchmark() {
-        use std::time::Instant;
-
+    fn depth_10_search_completes_and_returns_a_move() {
+        // Smoke test: a deep search on a real position returns a legal move
+        // and reports a sane depth. Timing/EBF used to be printed here; the
+        // verbose benchmark output was removed.
         let mut game = midgame_position();
 
-        let start = Instant::now();
+        let result = best_move(&mut game, 10, 20);
 
-        let result = best_move(
-            &mut game,
-            10,
-            20,
-        );
-
-        let elapsed = start.elapsed();
-
-        println!();
-        println!("=== Depth 10 Benchmark ===");
-        println!("best move: {:?}", result.best_move);
-        println!("depth reached: {}", result.depth_reached);
-        println!("max_ply: {}", result.max_ply);
-        println!("score: {}", result.score);
-        println!("total_nodes: {}", result.total_nodes);
-        println!("time: {:?}", elapsed);
-
-        let ebf = (result.total_nodes as f64)
-            .powf(1.0 / result.depth_reached as f64);
-
-        println!("effective branching factor: {:.2}", ebf);
+        assert!(result.best_move.is_some());
+        assert!(result.depth_reached >= 1);
+        assert!(result.depth_reached <= 10);
     }
 }

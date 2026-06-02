@@ -17,7 +17,7 @@ export type Request =
   | { id: string; kind: "undo" }
   | { id: string; kind: "snapshot" }
   | { id: string; kind: "reset" }
-  | { id: string; kind: "bestMove"; depth: number };
+  | { id: string; kind: "bestMove"; depth: number; timeoutMs: number };
 
 export type Response =
   | { id: string; ok: true; kind: "play"; result: PlayResultDTO }

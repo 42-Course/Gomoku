@@ -16,6 +16,24 @@ export type GameStatus =
 
 export type MoveSource = "human" | "ai";
 
+/**
+ * Engine search metadata captured at the moment an AI move was chosen, so the
+ * review screen can show what the engine actually evaluated then — not a fresh
+ * recomputation. The chosen move is the parent `Move.coord` itself.
+ */
+export interface MoveAnalysis {
+  /** Score from the moving side's perspective. */
+  score: number;
+  /** Depth bound requested for the search (`ANY_DEPTH` for time-bounded). */
+  depth: number;
+  /** Deepest iterative-deepening depth fully completed. */
+  depthReached: number;
+  /** Deepest ply explored overall. */
+  maxPly: number;
+  /** Total nodes (incl. leaves) visited across all iterations. */
+  nodesVisited: number;
+}
+
 export interface Move {
   index: number;           // 0-based turn number
   player: Player;
@@ -24,6 +42,7 @@ export interface Move {
   thinkMs: number;         // time the actor spent on this move
   source: MoveSource;
   analysisId?: string;     // present when source === "ai"
+  analysis?: MoveAnalysis; // engine eval captured for AI moves
 }
 
 /**
@@ -56,8 +75,10 @@ export interface Game extends GameSummary {
   moves: Move[];
   captures: { black: number; white: number };
   createdAt: string;
-  /** Engine search depth (only meaningful for `vsai` games). */
+  /** Engine search depth, or `ANY_DEPTH` for time-bounded (only `vsai`). */
   aiDepth?: number;
+  /** Wall-clock budget (ms) for the AI's "any depth" searches (`vsai`). */
+  aiTimeoutMs?: number;
   /** Which side the AI plays (only meaningful for `vsai` games). */
   aiSide?: Player;
 }
@@ -65,9 +86,9 @@ export interface Game extends GameSummary {
 /**
  * Aggregate result of one search, shown in the analysis panel.
  *
- * The engine only surfaces the chosen move, the root-side score, and the
- * search-cost counters now — the verbose tree / candidate breakdown used to
- * live here but was removed along with the engine's verbose search mode.
+ * The engine surfaces the chosen move, the root-side score, and the
+ * search-cost counters: the depth bound requested, the deepest iteration it
+ * actually completed, the deepest ply it explored, and the total node count.
  */
 export interface Analysis {
   id: string;
@@ -76,6 +97,19 @@ export interface Analysis {
   chosen: Coord | null;
   rootScore: number;
   thinkMs: number;
+  /** Depth bound requested for the search (`ANY_DEPTH` for time-bounded). */
   depth: number;
+  /** Deepest iterative-deepening depth the search fully completed. */
+  depthReached: number;
+  /** Deepest ply the search explored overall. */
+  maxPly: number;
+  /** Total nodes (incl. leaves) visited across all iterations. */
   nodesVisited: number;
+  /**
+   * What the engine recorded when it actually played this move, if it was an
+   * AI move. Shown alongside the fresh automatic analysis so the review can
+   * compare "what the AI decided then" against "what the engine thinks now".
+   * The recorded chosen move is `chosen` (the move that was played).
+   */
+  recorded?: MoveAnalysis;
 }

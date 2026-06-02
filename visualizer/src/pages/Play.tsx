@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
-import { Lightbulb, RotateCcw, Sparkles, X } from "lucide-react";
+import {
+  Circle,
+  Lightbulb,
+  RotateCcw,
+  Sparkles,
+  Timer,
+  Trophy,
+  X,
+} from "lucide-react";
 import type {
   Analysis,
   Board as BoardGrid,
@@ -9,6 +17,7 @@ import type {
   Game,
   GameStatus,
   Move,
+  MoveAnalysis,
   Player,
 } from "@/api/types";
 import { queryKeys } from "@/api/client";
@@ -16,6 +25,7 @@ import { BOARD_SIZE, boardAtMove, emptyBoard } from "@/api/fixtures";
 import { Board } from "@/components/Board";
 import { BoardSettings } from "@/components/BoardSettings";
 import { AnalysisPanel } from "@/components/AnalysisPanel";
+import { MoveTable } from "@/components/MoveTable";
 import { EvalBar } from "@/components/EvalBar";
 import { useGameView } from "@/store/gameView";
 import { EngineClient } from "@/engine/EngineClient";
@@ -24,7 +34,16 @@ import {
   getLocalGame,
   saveLocalGame,
 } from "@/storage/games";
-import { coordLabel } from "@/lib/format";
+import { coordLabel, formatMs } from "@/lib/format";
+import {
+  ANY_DEPTH,
+  AUTO_MAX_BUDGET_MS,
+  AUTO_START_BUDGET_MS,
+  DEFAULT_ANY_BUDGET_MS,
+  depthLabel,
+  MAX_SLIDER_DEPTH,
+  searchBudget,
+} from "@/lib/search";
 import { cn } from "@/lib/cn";
 
 const ANALYSIS_DEPTH = 4;
@@ -71,6 +90,11 @@ export function Play() {
   const [autoAnalyze, setAutoAnalyze] = useState(false);
   const [hoveredCell, setHoveredCell] = useState<Coord | null>(null);
   const [suggestion, setSuggestion] = useState<Coord | null>(null);
+  // Strength of the "Suggest" hint and the "Analyze" panel. `null` means
+  // "follow the game's AI depth"; an explicit pick overrides it. Deriving the
+  // effective depth this way avoids seeding state from the async game load.
+  const [suggestDepthPick, setSuggestDepth] = useState<number | null>(null);
+  const [analysisDepthPick, setAnalysisDepth] = useState<number | null>(null);
 
   const showCoordinates = useGameView((s) => s.showCoordinates);
   const showCrosshair = useGameView((s) => s.showCrosshair);
@@ -127,6 +151,35 @@ export function Play() {
     moves.length === 0 ? "black" : moves[moves.length - 1].player === "black" ? "white" : "black";
   const isOver = status.kind !== "ongoing";
 
+  // Effective strengths: an explicit pick wins, otherwise follow the game's
+  // AI depth so reviewing matches how the game was played.
+  const suggestDepth = suggestDepthPick ?? game?.aiDepth ?? ANALYSIS_DEPTH;
+  const analysisDepth = analysisDepthPick ?? game?.aiDepth ?? ANALYSIS_DEPTH;
+
+  // Per-player accumulated thinking time, summed from each move's recorded
+  // think time — so it survives reloads and undo without extra bookkeeping.
+  const accumulated = useMemo(() => {
+    const acc = { black: 0, white: 0 };
+    for (const m of moves) acc[m.player] += m.thinkMs;
+    return acc;
+  }, [moves]);
+
+  // Live count-up clock for the current turn. The interval captures the
+  // turn's start time in its closure (re-running whenever a move lands, so
+  // `moves.length` changes) and ticks the elapsed time into state — no ref
+  // reads or `Date.now()` during render.
+  const [currentTurnMs, setCurrentTurnMs] = useState(0);
+  // Whether the win/draw overlay has been dismissed for the current result.
+  const [winAck, setWinAck] = useState(false);
+  useEffect(() => {
+    setCurrentTurnMs(0);
+    setWinAck(false);
+    if (isOver || !restored) return;
+    const start = Date.now();
+    const t = setInterval(() => setCurrentTurnMs(Date.now() - start), 200);
+    return () => clearInterval(t);
+  }, [isOver, restored, moves.length]);
+
   /**
    * Persist the live game record back to IndexedDB whenever the displayed
    * state changes. Skipped while we're still restoring from disk.
@@ -152,7 +205,13 @@ export function Play() {
    * human input from AI replies in the saved record.
    */
   const playMove = useCallback(
-    async (x: number, y: number, source: "human" | "ai", thinkMs: number) => {
+    async (
+      x: number,
+      y: number,
+      source: "human" | "ai",
+      thinkMs: number,
+      analysis?: MoveAnalysis,
+    ) => {
       const before = performance.now();
       const result = await engine.play(x, y);
       const elapsed = thinkMs > 0 ? thinkMs : performance.now() - before;
@@ -165,6 +224,7 @@ export function Play() {
           captured: result.captured.map((c) => ({ x: c.x, y: c.y })),
           thinkMs: Math.round(elapsed),
           source,
+          analysis,
         },
       ]);
       setStatus(result.status);
@@ -177,7 +237,11 @@ export function Play() {
   const runAnalyze = useCallback(async () => {
     setAnalysisLoading(true);
     try {
-      const { result, thinkMs } = await engine.bestMove(ANALYSIS_DEPTH);
+      const { depth, timeoutMs } = searchBudget(
+        analysisDepth,
+        game?.aiTimeoutMs ?? DEFAULT_ANY_BUDGET_MS,
+      );
+      const { result, thinkMs } = await engine.bestMove(depth, timeoutMs);
       setAnalysis({
         id: `play_${Date.now()}`,
         gameId: game?.id ?? "play",
@@ -185,25 +249,28 @@ export function Play() {
         chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
         rootScore: result.score,
         thinkMs,
-        depth: ANALYSIS_DEPTH,
-        nodesVisited: Number(result.nodes_visited),
+        depth: analysisDepth,
+        depthReached: result.depth_reached,
+        maxPly: result.max_ply,
+        nodesVisited: Number(result.total_nodes),
       });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setAnalysisLoading(false);
     }
-  }, [engine, game?.id, moves.length]);
+  }, [engine, game?.id, game?.aiTimeoutMs, analysisDepth, moves.length]);
 
   /** Ask the engine for a move suggestion (one-shot, no panel update). */
   const runSuggest = useCallback(async () => {
     try {
-      const { result } = await engine.bestMove(game?.aiDepth ?? ANALYSIS_DEPTH);
+      const { depth, timeoutMs } = searchBudget(suggestDepth);
+      const { result } = await engine.bestMove(depth, timeoutMs);
       if (result.move) setSuggestion({ x: result.move.x, y: result.move.y });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [engine, game?.aiDepth]);
+  }, [engine, suggestDepth]);
 
   /**
    * Trigger an AI reply when it's the AI's turn. Refreshes analysis
@@ -215,10 +282,23 @@ export function Play() {
     setBusy(true);
     try {
       const t0 = performance.now();
-      const { result } = await engine.bestMove(game.aiDepth ?? ANALYSIS_DEPTH);
+      const { depth, timeoutMs } = searchBudget(
+        game.aiDepth ?? ANALYSIS_DEPTH,
+        game.aiTimeoutMs ?? DEFAULT_ANY_BUDGET_MS,
+      );
+      const { result } = await engine.bestMove(depth, timeoutMs);
       const elapsed = performance.now() - t0;
       if (result.move) {
-        await playMove(result.move.x, result.move.y, "ai", elapsed);
+        // Capture what the engine evaluated so the review screen can show
+        // the AI's own assessment at the moment it moved.
+        const evalMeta: MoveAnalysis = {
+          score: result.score,
+          depth,
+          depthReached: result.depth_reached,
+          maxPly: result.max_ply,
+          nodesVisited: Number(result.total_nodes),
+        };
+        await playMove(result.move.x, result.move.y, "ai", elapsed, evalMeta);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -227,7 +307,8 @@ export function Play() {
     }
   }, [currentPlayer, engine, game, isOver, playMove]);
 
-  // After every move settles, optionally auto-analyze and pump the AI turn.
+  // After every move settles, clear the stale suggestion and pump the AI turn.
+  // Auto-analysis is handled by its own progressive effect below.
   useEffect(() => {
     if (!restored) return;
     setSuggestion(null);
@@ -236,10 +317,7 @@ export function Play() {
       void triggerAiTurnIfNeeded();
       return;
     }
-    if (autoAnalyze) void runAnalyze();
-    else {
-      setAnalysis(null);
-    }
+    if (!autoAnalyze) setAnalysis(null);
   }, [
     restored,
     moves.length,
@@ -248,9 +326,64 @@ export function Play() {
     currentPlayer,
     game,
     isOver,
-    runAnalyze,
     triggerAiTurnIfNeeded,
   ]);
+
+  /**
+   * Progressive auto-analysis. While enabled and the side-to-move's position
+   * is held (game live, not the AI's turn), keep searching with a doubling
+   * time budget so the panel's result gets better the longer you sit on the
+   * move. Changing position (moves.length) cancels and restarts; the per-pass
+   * budget is capped so a queued move never waits long behind a search.
+   */
+  useEffect(() => {
+    if (!autoAnalyze || !restored || isOver) return;
+    if (game?.mode === "vsai" && currentPlayer === game.aiSide) return;
+
+    let cancelled = false;
+    const atMove = moves.length;
+    void (async () => {
+      setAnalysisLoading(true);
+      let budget = AUTO_START_BUDGET_MS;
+      let first = true;
+      while (!cancelled) {
+        let res: Awaited<ReturnType<typeof engine.bestMove>>;
+        try {
+          res = await engine.bestMove(ANY_DEPTH, budget);
+        } catch (e) {
+          if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+          break;
+        }
+        if (cancelled) return;
+        const { result, thinkMs } = res;
+        setAnalysis({
+          id: `auto_${atMove}_${budget}`,
+          gameId: game?.id ?? "play",
+          moveIndex: atMove,
+          chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
+          rootScore: result.score,
+          thinkMs,
+          depth: ANY_DEPTH,
+          depthReached: result.depth_reached,
+          maxPly: result.max_ply,
+          nodesVisited: Number(result.total_nodes),
+        });
+        if (first) {
+          setAnalysisLoading(false);
+          first = false;
+        }
+        // Stop once we've reached the budget cap — the result has converged and
+        // re-running at the same budget would just repeat it.
+        if (budget >= AUTO_MAX_BUDGET_MS) break;
+        budget = Math.min(budget * 2, AUTO_MAX_BUDGET_MS);
+      }
+      if (!cancelled) setAnalysisLoading(false);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [autoAnalyze, restored, isOver, moves.length, currentPlayer, game, engine]);
 
   const onCellClick = async (c: Coord) => {
     if (busy || isOver || !game) return;
@@ -299,6 +432,7 @@ export function Play() {
     const nextId = await createLocalGame({
       mode: game.mode,
       aiDepth: game.aiDepth,
+      aiTimeoutMs: game.aiTimeoutMs,
       aiSide: game.aiSide,
     });
     queryClient.invalidateQueries({ queryKey: queryKeys.games });
@@ -324,9 +458,9 @@ export function Play() {
   }
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-bg-1 px-6 py-3">
-        <div className="flex items-center gap-3">
+    <div className="flex min-h-screen flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-border bg-bg-1 px-4 py-3 sm:px-6">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5">
           <button
             onClick={() => navigate("/")}
             className="text-ink-muted hover:text-ink-strong"
@@ -341,13 +475,27 @@ export function Play() {
           <StatusBadge status={status} />
         </div>
 
-        <div className="flex items-center gap-2">
-          <Btn onClick={runSuggest} disabled={busy || isOver}>
-            <Lightbulb className="size-3.5" /> Suggest
-          </Btn>
-          <Btn onClick={runAnalyze} disabled={busy} active={!!analysis}>
-            <Sparkles className="size-3.5" /> Analyze
-          </Btn>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex items-center gap-1.5">
+            <Btn onClick={runSuggest} disabled={busy || isOver}>
+              <Lightbulb className="size-3.5" /> Suggest
+            </Btn>
+            <StrengthSelect
+              value={suggestDepth}
+              onChange={setSuggestDepth}
+              title="Suggestion strength"
+            />
+          </div>
+          <div className="flex items-center gap-1.5">
+            <Btn onClick={runAnalyze} disabled={busy} active={!!analysis}>
+              <Sparkles className="size-3.5" /> Analyze
+            </Btn>
+            <StrengthSelect
+              value={analysisDepth}
+              onChange={setAnalysisDepth}
+              title="Analysis depth"
+            />
+          </div>
           <Btn onClick={undo} disabled={busy || moves.length === 0}>
             <RotateCcw className="size-3.5" /> Undo
           </Btn>
@@ -363,8 +511,14 @@ export function Play() {
         </div>
       )}
 
-      <div className="grid flex-1 grid-cols-[1fr_340px] gap-6 overflow-hidden p-6">
-        <div className="flex flex-col gap-3 overflow-hidden">
+      <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 lg:grid-cols-[minmax(0,1fr)_340px] lg:gap-6 lg:overflow-hidden lg:p-6">
+        <div className="flex min-w-0 flex-col gap-3 lg:overflow-hidden">
+          <TurnClock
+            current={currentPlayer}
+            accumulated={accumulated}
+            currentTurnMs={currentTurnMs}
+            isOver={isOver}
+          />
           <div className="flex items-stretch gap-2">
             {showEvalBar && (
               <EvalBar
@@ -372,7 +526,7 @@ export function Play() {
                 rootSide={currentPlayer}
               />
             )}
-            <div className="flex-1">
+            <div className="relative min-w-0 flex-1">
               <Board
                 board={board}
                 lastMove={lastMove?.coord ?? null}
@@ -385,6 +539,14 @@ export function Play() {
                 onCellClick={onCellClick}
                 onHoverCell={setHoveredCell}
               />
+              {isOver && !winAck && (
+                <GameOverOverlay
+                  status={status}
+                  busy={busy}
+                  onNewGame={newGame}
+                  onDismiss={() => setWinAck(true)}
+                />
+              )}
             </div>
           </div>
           <BoardSettings
@@ -406,7 +568,7 @@ export function Play() {
           />
         </div>
 
-        <div className="flex flex-col gap-3 overflow-y-auto">
+        <div className="flex min-w-0 flex-col gap-3 lg:overflow-y-auto">
           <AnalysisPanel
             analysis={analysis}
             isLoading={analysisLoading}
@@ -415,9 +577,180 @@ export function Play() {
             onAnalyze={runAnalyze}
             onToggleAutoAnalyze={() => setAutoAnalyze((v) => !v)}
           />
+          <div className="flex flex-col gap-2">
+            <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
+              History
+            </div>
+            <MoveTable moves={moves} selectedIndex={moves.length - 1} />
+          </div>
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Prominent end-of-game banner overlaid on the board so a win/draw is
+ * impossible to miss. Dismissable so the final position stays reviewable.
+ */
+function GameOverOverlay({
+  status,
+  busy,
+  onNewGame,
+  onDismiss,
+}: {
+  status: GameStatus;
+  busy: boolean;
+  onNewGame: () => void;
+  onDismiss: () => void;
+}) {
+  const winner = status.kind === "win" ? status.player : null;
+  return (
+    <div className="absolute inset-0 z-20 flex items-center justify-center rounded-md bg-bg-0/55 p-4 backdrop-blur-[2px]">
+      <div className="relative flex flex-col items-center gap-4 rounded-2xl border border-border bg-bg-1/95 px-8 py-7 text-center shadow-2xl">
+        <button
+          onClick={onDismiss}
+          aria-label="Dismiss"
+          className="absolute right-3 top-3 text-ink-muted hover:text-ink-strong"
+        >
+          <X className="size-4" />
+        </button>
+
+        {winner ? (
+          <>
+            <div className="flex size-14 items-center justify-center rounded-full bg-accent/15">
+              <Trophy className="size-7 text-accent" />
+            </div>
+            <div>
+              <div className="flex items-center justify-center gap-2 text-xl font-semibold text-ink-strong">
+                <Circle
+                  className={cn(
+                    "size-4",
+                    winner === "black"
+                      ? "fill-stone-black stroke-0"
+                      : "fill-stone-white stroke-0",
+                  )}
+                />
+                {winner === "black" ? "Black" : "White"} wins
+              </div>
+              <div className="mt-1 text-xs text-ink-muted">Game over</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="flex size-14 items-center justify-center rounded-full bg-bg-3 text-2xl">
+              🤝
+            </div>
+            <div className="text-xl font-semibold text-ink-strong">Draw</div>
+          </>
+        )}
+
+        <div className="flex items-center gap-2">
+          <button
+            onClick={onNewGame}
+            disabled={busy}
+            className="rounded-md bg-accent px-4 py-1.5 text-xs font-medium text-bg-0 transition-colors hover:bg-accent/85 disabled:opacity-40"
+          >
+            New game
+          </button>
+          <button
+            onClick={onDismiss}
+            className="rounded-md bg-bg-2 px-4 py-1.5 text-xs text-ink-strong transition-colors hover:bg-bg-3"
+          >
+            Review
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Compact strength picker: fixed depths 1..MAX plus an "Any" entry that
+ * maps to the time-bounded sentinel depth. Used for the Suggest hint.
+ */
+function StrengthSelect({
+  value,
+  onChange,
+  title,
+}: {
+  value: number;
+  onChange: (depth: number) => void;
+  title?: string;
+}) {
+  return (
+    <select
+      value={value}
+      title={title}
+      onChange={(e) => onChange(parseInt(e.target.value, 10))}
+      className="rounded-md bg-bg-2 px-2 py-1.5 text-xs text-ink-strong outline-none hover:bg-bg-3 focus:ring-1 focus:ring-accent"
+    >
+      {Array.from({ length: MAX_SLIDER_DEPTH }, (_, i) => i + 1).map((d) => (
+        <option key={d} value={d}>
+          depth {d}
+        </option>
+      ))}
+      <option value={ANY_DEPTH}>Any (timed)</option>
+    </select>
+  );
+}
+
+/**
+ * Turn clock: a live count-up for the side to move plus each player's
+ * accumulated thinking time across the game.
+ */
+function TurnClock({
+  current,
+  accumulated,
+  currentTurnMs,
+  isOver,
+}: {
+  current: Player;
+  accumulated: { black: number; white: number };
+  currentTurnMs: number;
+  isOver: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between rounded-md border border-border bg-bg-1 px-3 py-2 text-xs">
+      <div className="flex items-center gap-2 text-ink-muted">
+        <Timer className="size-3.5" />
+        <span className="font-mono tabular-nums text-ink-strong">
+          {isOver ? "—" : formatMs(currentTurnMs)}
+        </span>
+        {!isOver && <span>· {current} to move</span>}
+      </div>
+      <div className="flex items-center gap-3">
+        <PlayerClock player="black" ms={accumulated.black} active={!isOver && current === "black"} />
+        <PlayerClock player="white" ms={accumulated.white} active={!isOver && current === "white"} />
+      </div>
+    </div>
+  );
+}
+
+function PlayerClock({
+  player,
+  ms,
+  active,
+}: {
+  player: Player;
+  ms: number;
+  active: boolean;
+}) {
+  return (
+    <span
+      className={cn(
+        "inline-flex items-center gap-1.5 rounded px-1.5 py-0.5 font-mono tabular-nums",
+        active ? "bg-accent/15 text-accent" : "text-ink-muted",
+      )}
+    >
+      <Circle
+        className={cn(
+          "size-2.5",
+          player === "black" ? "fill-stone-black stroke-0" : "fill-stone-white stroke-0",
+        )}
+      />
+      {formatMs(ms)}
+    </span>
   );
 }
 
@@ -425,7 +758,8 @@ function GameHeader({ game }: { game: Game }) {
   if (game.mode === "vsai") {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md bg-bg-2 px-2 py-1 text-xs text-ink-strong">
-        vs AI · depth {game.aiDepth} · AI plays {game.aiSide}
+        vs AI · depth {game.aiDepth != null ? depthLabel(game.aiDepth) : "?"} · AI
+        plays {game.aiSide}
       </span>
     );
   }

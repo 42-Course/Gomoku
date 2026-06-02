@@ -80,11 +80,23 @@ export class EngineClient {
     }).then(() => undefined);
   }
 
-  bestMove(depth: number): Promise<{ result: BestMoveDTO; thinkMs: number }> {
+  /**
+   * Search the current position.
+   *
+   * `depth` is the upper bound on iterative-deepening depth; `timeoutMs`
+   * is the wall-clock budget. For a fixed-strength search pass the depth
+   * with a generous budget; for "any depth" pass a large depth and let the
+   * budget decide how far the search gets (see `result.depth_reached`).
+   */
+  bestMove(
+    depth: number,
+    timeoutMs: number,
+  ): Promise<{ result: BestMoveDTO; thinkMs: number }> {
     return this.send<Extract<Response, { kind: "bestMove"; ok: true }>>({
       id: newId(),
       kind: "bestMove",
       depth,
+      timeoutMs,
     }).then((r) => ({ result: r.result, thinkMs: r.thinkMs }));
   }
 

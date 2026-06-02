@@ -114,8 +114,8 @@ export function GameDetail() {
   const canAnalyze = selectedMoveIndex >= 0;
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex items-center justify-between border-b border-border bg-bg-1 px-6 py-3">
+    <div className="flex min-h-screen flex-col">
+      <header className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-border bg-bg-1 px-4 py-3 sm:px-6">
         <div className="flex items-center gap-4">
           <Link to="/games" className="text-ink-muted hover:text-ink-strong">
             <ArrowLeft className="size-4" />
@@ -145,8 +145,8 @@ export function GameDetail() {
         </div>
       </header>
 
-      <div className="grid flex-1 grid-cols-[1fr_340px_320px] gap-6 overflow-hidden p-6">
-        <div className="flex flex-col gap-3 overflow-hidden">
+      <div className="grid flex-1 grid-cols-1 gap-4 overflow-y-auto p-4 xl:grid-cols-[minmax(0,1fr)_340px_320px] xl:gap-6 xl:overflow-hidden xl:p-6">
+        <div className="flex min-w-0 flex-col gap-3 xl:overflow-hidden">
           <div className="flex items-stretch gap-2">
             {showEvalBar && (
               <EvalBar
@@ -160,7 +160,7 @@ export function GameDetail() {
                 }
               />
             )}
-            <div className="flex-1">
+            <div className="min-w-0 flex-1">
               <Board
                 board={board}
                 lastMove={selectedMove?.coord ?? null}
@@ -195,7 +195,7 @@ export function GameDetail() {
           <MoveSummary />
         </div>
 
-        <div className="flex flex-col gap-3 overflow-hidden">
+        <div className="flex min-w-0 flex-col gap-3 xl:overflow-hidden">
           <div className="text-[11px] font-medium uppercase tracking-wider text-ink-muted">
             Moves
           </div>
@@ -206,7 +206,7 @@ export function GameDetail() {
           />
         </div>
 
-        <div className="flex flex-col gap-3 overflow-y-auto">
+        <div className="flex min-w-0 flex-col gap-3 xl:overflow-y-auto">
           <AnalysisPanel
             analysis={analysisQuery.data}
             isLoading={analysisEnabled && analysisQuery.isFetching}

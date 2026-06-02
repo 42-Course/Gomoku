@@ -11,12 +11,14 @@
 import type { Analysis, Game, GameSummary } from "./types";
 import { getGameFixture, GAMES as FIXTURE_GAMES } from "./fixtures";
 import { getEngine } from "@/engine/EngineClient";
+import { DEFAULT_ANY_BUDGET_MS, searchBudget } from "@/lib/search";
 import {
   deleteLocalGame,
   getLocalGame,
   listLocalGames,
 } from "@/storage/games";
 
+/** Fallback review depth for games with no AI strength (hot-seat). */
 const ANALYSIS_DEPTH = 4;
 
 function summarize(g: Game): GameSummary {
@@ -100,12 +102,21 @@ export async function getAnalysis(
 ): Promise<Analysis | null> {
   if (moveIndex < 0) return null;
   const g = await getGame(gameId);
-  if (!g.moves[moveIndex]) return null;
+  const move = g.moves[moveIndex];
+  if (!move) return null;
 
   const ok = await replaySafely(g.moves.map((m) => m.coord), moveIndex - 1);
   if (!ok) return null;
 
-  const { result, thinkMs } = await getEngine().bestMove(ANALYSIS_DEPTH);
+  // Fresh "automatic" analysis: re-run the search at the strength the game was
+  // played at, so the summary reflects the chosen depth instead of a fixed
+  // default. Hot-seat games (no AI depth) fall back to the default depth.
+  const reviewDepth = g.aiDepth ?? ANALYSIS_DEPTH;
+  const { depth, timeoutMs } = searchBudget(
+    reviewDepth,
+    g.aiTimeoutMs ?? DEFAULT_ANY_BUDGET_MS,
+  );
+  const { result, thinkMs } = await getEngine().bestMove(depth, timeoutMs);
   return {
     id: `a_${gameId}_${moveIndex}`,
     gameId,
@@ -113,8 +124,13 @@ export async function getAnalysis(
     chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
     rootScore: result.score,
     thinkMs,
-    depth: ANALYSIS_DEPTH,
-    nodesVisited: Number(result.nodes_visited),
+    depth: reviewDepth,
+    depthReached: result.depth_reached,
+    maxPly: result.max_ply,
+    nodesVisited: Number(result.total_nodes),
+    // If the AI played this move, surface what it recorded at the time too, so
+    // the panel can show both "then" and "now" side by side.
+    recorded: move.source === "ai" ? move.analysis : undefined,
   };
 }
 
