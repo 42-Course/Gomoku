@@ -99,7 +99,7 @@ impl GameHandle {
     #[wasm_bindgen(js_name = bestMove)]
     pub fn best_move(&mut self, depth: u32, timeout_ms: u32) -> Result<JsValue, JsError> {
         let config = SearchConfig {
-            timeout_ms: timeout_ms as u64,
+            timeout_ms: timeout_ms as u64 / 2,
             ..SearchConfig::default()
         };
         let result =
