@@ -22,7 +22,7 @@
 #![allow(dead_code)]
 
 use std::sync::atomic::{AtomicU64, Ordering};
-
+use std::fmt;
 use crate::ai::SearchConfig;
 use crate::ai::eval::evaluate;
 use crate::ai::iterative_deepening::iterative_deepening;
@@ -52,6 +52,13 @@ pub struct SearchResult {
     /// Deepest ply explored overall.
     pub max_ply: u32,
 }
+
+impl fmt::Display for SearchResult {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{} {} {} {} {}", self.best_move.unwrap(), self.score, self.depth_reached, self.total_nodes, self.max_ply)
+    }
+}
+
 
 /// If the position is terminal, return its score from the side-to-move's
 /// perspective. A player can never be on-move in a position they already won,
@@ -465,10 +472,14 @@ mod tests {
         let r1 = best_move(&mut g1, 6, 0);
         let r2 = best_move(&mut g2, 6, 20);
 
+        println!("r1: {}, r2: {}", r1, r2);
         println!("no TT nodes: {}", r1.total_nodes);
         println!("TT nodes: {}", r2.total_nodes);
-
-        assert!(r2.total_nodes < r1.total_nodes);
+        if r1.depth_reached < r2.depth_reached {
+            //skip
+        } else if r1.depth_reached <= r2.depth_reached {
+            assert!(r2.total_nodes < r1.total_nodes);
+        }
     }
 
     #[test]

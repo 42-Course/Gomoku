@@ -13,7 +13,7 @@ pub struct SearchConfig {
 impl Default for SearchConfig {
     fn default() -> Self {
         Self {
-            enable_lmr: true,
+            enable_lmr: false,
             timeout_ms: 100,
             iterative_start_depth: 1,
         }

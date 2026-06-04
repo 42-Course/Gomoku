@@ -115,6 +115,21 @@ impl Direction {
         }
     }
 
+    #[inline]
+    pub fn forward_n(
+        self,
+        bits: BitBoard,
+        n: usize,
+    ) -> BitBoard {
+        let mut out = bits;
+
+        for _ in 0..n {
+            out = self.forward(out);
+        }
+
+        out
+    }
+
     /// Shift the bitboard one cell backward along this direction.
     #[inline]
     pub fn backward(
@@ -134,6 +149,21 @@ impl Direction {
             Direction::AntiDiagonal =>
                 bits.north_east(),
         }
+    }
+
+    #[inline]
+    pub fn backward_n(
+        self,
+        bits: BitBoard,
+        n: usize,
+    ) -> BitBoard {
+        let mut out = bits;
+
+        for _ in 0..n {
+            out = self.backward(out);
+        }
+
+        out
     }
 
     #[inline]
@@ -600,7 +630,7 @@ impl Game {
     /// of the four directions.
     ///
     /// Packs the 9-cell window centered on the stone into bitmasks and
-    /// hands the detection off to [`crate::patterns::count_patterns`].
+    /// hands the detection off to [`crate::patterns::count_line_patterns`].
     /// Off-board cells fall outside the packed window, so the board edge
     /// acts as a wall — same convention used by [`Game::is_free_three`].
     pub fn check_win(&self, pos: Pos) -> bool {
