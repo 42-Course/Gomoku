@@ -11,6 +11,7 @@
 //! must call `handle.free()` when it's done with a game, or hold a single
 //! handle for the lifetime of the page.
 use engine::ai;
+use engine::ai::SearchConfig;
 use engine::constants::BOARD_SIZE;
 use engine::game::Game;
 use serde::Serialize;
@@ -86,13 +87,23 @@ impl GameHandle {
         self.game.undo_move().map_err(|e| JsError::new(&e))
     }
 
-    /// Run alpha-beta to `depth` plies and return the recommendation.
+    /// Run alpha-beta up to `depth` plies and return the recommendation.
+    ///
+    /// `timeout_ms` is the search's wall-clock budget: iterative deepening
+    /// stops starting new depths once it's exceeded. Pass a large `depth`
+    /// (e.g. for an "any depth" request) and let the budget decide how far
+    /// the search actually gets — `depth_reached` in the result reports it.
     ///
     /// The game state is unchanged on return. A fresh transposition table
     /// is allocated per call — the engine's TT lifetime is one search.
     #[wasm_bindgen(js_name = bestMove)]
-    pub fn best_move(&mut self, depth: u32) -> Result<JsValue, JsError> {
-        let result = ai::best_move(&mut self.game, depth, TT_SIZE_POWER);
+    pub fn best_move(&mut self, depth: u32, timeout_ms: u32) -> Result<JsValue, JsError> {
+        let config = SearchConfig {
+            timeout_ms: timeout_ms as u64 / 2,
+            ..SearchConfig::default()
+        };
+        let result =
+            ai::best_move_with(&mut self.game, depth, TT_SIZE_POWER, &config);
         let dto = BestMoveDTO {
             r#move: result.best_move.map(|pos| {
                 let (x, y) = pos.to_xy();

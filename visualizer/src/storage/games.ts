@@ -12,6 +12,7 @@
  */
 
 import type { Game, GameMode, Player } from "@/api/types";
+import { depthLabel } from "@/lib/search";
 import { ensureIdentity } from "./identity";
 import { req, tx } from "./db";
 
@@ -44,6 +45,7 @@ export async function deleteLocalGame(id: string): Promise<void> {
 export interface NewGameSpec {
   mode: GameMode;
   aiDepth?: number;
+  aiTimeoutMs?: number;
   aiSide?: Player;
 }
 
@@ -60,7 +62,7 @@ export async function createLocalGame(spec: NewGameSpec): Promise<string> {
   const id = `local_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
   const aiLabel =
     spec.mode === "vsai" && spec.aiDepth != null
-      ? `AI (depth ${spec.aiDepth})`
+      ? `AI (depth ${depthLabel(spec.aiDepth)})`
       : "AI";
   const black =
     spec.mode === "vsai" && spec.aiSide === "black" ? aiLabel : me.displayName;
@@ -73,7 +75,7 @@ export async function createLocalGame(spec: NewGameSpec): Promise<string> {
     mode: spec.mode,
     title:
       spec.mode === "vsai"
-        ? `vs AI (depth ${spec.aiDepth ?? "?"})`
+        ? `vs AI (depth ${spec.aiDepth != null ? depthLabel(spec.aiDepth) : "?"})`
         : "Hot-seat",
     black,
     white,
@@ -84,6 +86,7 @@ export async function createLocalGame(spec: NewGameSpec): Promise<string> {
     createdAt: now,
     updatedAt: now,
     aiDepth: spec.mode === "vsai" ? spec.aiDepth : undefined,
+    aiTimeoutMs: spec.mode === "vsai" ? spec.aiTimeoutMs : undefined,
     aiSide: spec.mode === "vsai" ? spec.aiSide : undefined,
   };
   await saveLocalGame(game);

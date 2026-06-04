@@ -226,24 +226,6 @@ impl BitBoard {
     pub fn any(self) -> bool {
         self.words.iter().any(|&w| w != 0)
     }
-
-    /// Print the bitboard as a grid for debugging.
-    #[allow(dead_code)]
-    pub fn debug_print(self) {
-        for y in 0..BOARD_SIZE {
-            for x in 0..BOARD_SIZE {
-                let pos = Pos::from_xy(x, y);
-
-                if self.is_occupied(pos) {
-                    print!(" X");
-                } else {
-                    print!(" .");
-                }
-            }
-            println!();
-        }
-        println!();
-    }
 }
 
 /// Bitwise OR between two bitboards.

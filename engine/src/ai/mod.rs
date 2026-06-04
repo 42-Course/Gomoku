@@ -21,4 +21,4 @@ pub use config::SearchConfig;
 #[allow(unused_imports)]
 pub use eval::evaluate;
 #[allow(unused_imports)]
-pub use search::{negamax, best_move, SearchResult};
+pub use search::{negamax, best_move, best_move_with, SearchResult};

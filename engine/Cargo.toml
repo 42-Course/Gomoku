@@ -7,3 +7,8 @@ edition = "2021"
 
 [dependencies]
 once_cell = "1.21.4"
+
+# Drop-in `std::time` replacement: on native it re-exports std, on wasm32
+# it reads `performance.now()` instead of panicking. The search's iterative
+# deepening needs a real clock to honour its time budget in the browser.
+web-time = "1.1"

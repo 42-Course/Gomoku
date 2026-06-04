@@ -5,7 +5,13 @@ import { ArrowRight, Bot, Circle, Clock, Users, X } from "lucide-react";
 import { listGames, queryKeys } from "@/api/client";
 import type { GameSummary, Player } from "@/api/types";
 import { createLocalGame } from "@/storage/games";
-import { coordLabel, relativeFromNow } from "@/lib/format";
+import { coordLabel, formatMs, relativeFromNow } from "@/lib/format";
+import {
+  ANY_BUDGET_CHOICES_MS,
+  ANY_DEPTH,
+  DEFAULT_ANY_BUDGET_MS,
+  MAX_SLIDER_DEPTH,
+} from "@/lib/search";
 import { cn } from "@/lib/cn";
 
 /**
@@ -31,11 +37,12 @@ export function Home() {
     navigate(`/play?id=${id}`);
   };
 
-  const startVsAi = async (side: Player, depth: number) => {
+  const startVsAi = async (side: Player, depth: number, timeoutMs: number) => {
     const id = await createLocalGame({
       mode: "vsai",
       aiSide: side === "black" ? "white" : "black",
       aiDepth: depth,
+      aiTimeoutMs: timeoutMs,
     });
     setAiModalOpen(false);
     queryClient.invalidateQueries({ queryKey: queryKeys.games });
@@ -197,10 +204,14 @@ function AiSetupModal({
 }: {
   onCancel: () => void;
   /** `side` is the *human* side; the engine takes the other one. */
-  onStart: (humanSide: Player, depth: number) => void;
+  onStart: (humanSide: Player, depth: number, timeoutMs: number) => void;
 }) {
   const [side, setSide] = useState<Player>("black");
   const [depth, setDepth] = useState(4);
+  // "Any depth": search is bounded by a time budget rather than a fixed depth.
+  const [anyDepth, setAnyDepth] = useState(false);
+  const [budgetMs, setBudgetMs] = useState(DEFAULT_ANY_BUDGET_MS);
+  const effectiveDepth = anyDepth ? ANY_DEPTH : depth;
 
   return (
     <div
@@ -250,20 +261,51 @@ function AiSetupModal({
             </div>
           </Field>
 
-          <Field label={`AI depth: ${depth}`}>
+          <Field label={anyDepth ? "AI depth: Any (time-limited)" : `AI depth: ${depth}`}>
             <input
               type="range"
               min={1}
-              max={6}
+              max={MAX_SLIDER_DEPTH}
               value={depth}
+              disabled={anyDepth}
               onChange={(e) => setDepth(parseInt(e.target.value, 10))}
-              className="w-full accent-accent"
+              className="w-full accent-accent disabled:opacity-40"
             />
             <div className="flex justify-between text-[10px] text-ink-muted">
               <span>fast (1)</span>
-              <span>strong (6)</span>
+              <span>strong ({MAX_SLIDER_DEPTH})</span>
             </div>
+            <label className="mt-1 flex cursor-pointer items-center gap-2 text-xs text-ink-strong">
+              <input
+                type="checkbox"
+                checked={anyDepth}
+                onChange={(e) => setAnyDepth(e.target.checked)}
+                className="accent-accent"
+              />
+              Any depth — search until the time budget runs out
+            </label>
           </Field>
+
+          {anyDepth && (
+            <Field label={`Thinking time: ${formatMs(budgetMs)}`}>
+              <div className="flex flex-wrap gap-1.5">
+                {ANY_BUDGET_CHOICES_MS.map((ms) => (
+                  <button
+                    key={ms}
+                    onClick={() => setBudgetMs(ms)}
+                    className={cn(
+                      "rounded-md border px-2.5 py-1 text-xs transition-colors",
+                      budgetMs === ms
+                        ? "border-accent bg-accent/15 text-accent"
+                        : "border-border bg-bg-2 text-ink-strong hover:bg-bg-3",
+                    )}
+                  >
+                    {formatMs(ms)}
+                  </button>
+                ))}
+              </div>
+            </Field>
+          )}
         </div>
 
         <div className="flex justify-end gap-2 border-t border-border bg-bg-1 px-4 py-3">
@@ -274,7 +316,7 @@ function AiSetupModal({
             Cancel
           </button>
           <button
-            onClick={() => onStart(side, depth)}
+            onClick={() => onStart(side, effectiveDepth, budgetMs)}
             className="rounded-md bg-accent px-3 py-1.5 text-xs font-medium text-bg-0 hover:bg-accent/85"
           >
             Start

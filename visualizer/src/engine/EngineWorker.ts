@@ -52,7 +52,7 @@ self.addEventListener("message", async (ev: MessageEvent<Request>) => {
       }
       case "bestMove": {
         const t0 = performance.now();
-        const result = handle.bestMove(req.depth);
+        const result = handle.bestMove(req.depth, req.timeoutMs);
         const thinkMs = performance.now() - t0;
         reply({ id: req.id, ok: true, kind: "bestMove", result, thinkMs });
         return;

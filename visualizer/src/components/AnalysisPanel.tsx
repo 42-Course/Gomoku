@@ -1,6 +1,7 @@
-import { Bot, Sparkles, Zap, ZapOff } from "lucide-react";
+import { Bot, Clock, Sparkles, Zap, ZapOff } from "lucide-react";
 import type { Analysis } from "@/api/types";
 import { coordLabel, formatMs } from "@/lib/format";
+import { depthLabel } from "@/lib/search";
 import { cn } from "@/lib/cn";
 
 interface AnalysisPanelProps {
@@ -68,7 +69,7 @@ export function AnalysisPanel({
     <Shell>
       <div className="flex items-center justify-between border-b border-border bg-bg-2 px-3 py-1.5">
         <div className="flex items-center gap-2 text-xs font-medium text-ink-strong">
-          <Bot className="size-3.5 text-accent" /> AI search
+          <Bot className="size-3.5 text-accent" /> Automatic analysis
         </div>
       </div>
 
@@ -79,7 +80,12 @@ export function AnalysisPanel({
           mono
         />
         <Stat label="score" value={formatScore(analysis.rootScore)} mono />
-        <Stat label="depth" value={analysis.depth.toString()} mono />
+        <Stat
+          label="depth"
+          value={`${analysis.depthReached}/${depthLabel(analysis.depth)}`}
+          mono
+        />
+        <Stat label="max ply" value={analysis.maxPly.toString()} mono />
         <Stat
           label="nodes"
           value={analysis.nodesVisited.toLocaleString()}
@@ -87,6 +93,30 @@ export function AnalysisPanel({
         />
         <Stat label="think" value={formatMs(analysis.thinkMs)} mono />
       </div>
+
+      {analysis.recorded && (
+        <>
+          <div className="flex items-center gap-2 border-y border-border bg-bg-2 px-3 py-1.5 text-xs font-medium text-ink-strong">
+            <Clock className="size-3.5 text-accent-2" /> When the AI played it
+          </div>
+          <div className="grid grid-cols-2 gap-3 p-3 text-xs">
+            <Stat label="chosen" value={coordLabel(analysis.recorded.chosen)} mono />
+            <Stat label="score" value={formatScore(analysis.recorded.score)} mono />
+            <Stat
+              label="depth"
+              value={`${analysis.recorded.depthReached}/${depthLabel(analysis.recorded.depth)}`}
+              mono
+            />
+            <Stat label="max ply" value={analysis.recorded.maxPly.toString()} mono />
+            <Stat
+              label="nodes"
+              value={analysis.recorded.nodesVisited.toLocaleString()}
+              mono
+            />
+            <Stat label="think" value={formatMs(analysis.recorded.thinkMs)} mono />
+          </div>
+        </>
+      )}
 
       <div className="flex items-center justify-end border-t border-border bg-bg-1 p-2">
         <AutoToggle active={autoAnalyze} onClick={onToggleAutoAnalyze} />

@@ -6,7 +6,7 @@
 //! Earlier iterations improve move ordering for deeper searches through
 //! TT reuse, reducing the explored search tree and improving pruning
 //! efficiency at larger depths.
-use std::time::{Duration, Instant};
+use web_time::{Duration, Instant};
 use crate::game::{ Game, Pos };
 use crate::transpose::{ TranspositionTable };
 use crate::ai::{SearchConfig, negamax};
@@ -232,19 +232,10 @@ mod tests {
         let iterative = iterative_deepening(&mut g2, depth, 20, &config);
         let iterative_time = start.elapsed();
 
-        println!();
-        println!("=== Direct Search ===");
-        println!("best move: {:?}", direct.best_move);
-        println!("score: {}", direct.score);
-        println!("nodes: {}", direct.total_nodes);
-        println!("time: {:?}", direct_time);
+        // Direct and iterative searches must agree on the move and score;
+        // the timings are computed only to keep the search bounded.
+        let _ = (direct_time, iterative_time);
 
-        println!();
-        println!("=== Iterative Deepening ===");
-        println!("best move: {:?}", iterative.result.best_move);
-        println!("score: {}", iterative.result.score);
-        println!("nodes: {}", iterative.result.nodes_visited);
-        println!("time: {:?}", iterative_time);
         assert_eq!(
             direct.best_move,
             iterative.result.best_move,
@@ -272,10 +263,6 @@ mod tests {
         );
 
         let elapsed = start.elapsed();
-
-        println!();
-        println!("depth reached: {}", result.depth_reached);
-        println!("elapsed: {:?}", elapsed);
 
         // We should stop before reaching max depth.
         assert!(result.depth_reached < 20);

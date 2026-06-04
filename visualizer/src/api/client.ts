@@ -11,13 +11,34 @@
 import type { Analysis, Game, GameSummary } from "./types";
 import { getGameFixture, GAMES as FIXTURE_GAMES } from "./fixtures";
 import { getEngine } from "@/engine/EngineClient";
+import { DEFAULT_ANY_BUDGET_MS, searchBudget } from "@/lib/search";
 import {
   deleteLocalGame,
   getLocalGame,
   listLocalGames,
 } from "@/storage/games";
 
+/** Fallback review depth for games with no AI strength (hot-seat). */
 const ANALYSIS_DEPTH = 4;
+
+/**
+ * Serialize all access to the shared review engine.
+ *
+ * The engine worker holds one position at a time, and analysis replays the
+ * game into it before searching. If two analyses overlapped, their replay and
+ * search messages would interleave and corrupt the board. Chaining every
+ * engine-touching block through this lock keeps each `replay → search` atomic.
+ */
+let engineLock: Promise<unknown> = Promise.resolve();
+function withEngineLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = engineLock.then(fn, fn);
+  // Swallow errors on the chain so one failure doesn't wedge the queue.
+  engineLock = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  return run;
+}
 
 function summarize(g: Game): GameSummary {
   return {
@@ -93,35 +114,55 @@ async function replaySafely(
  * actually did) and human moves (where it shows what the engine *would*
  * have done). Returns null when the saved move list can't be replayed
  * (random-walk fixtures sometimes hit illegal positions).
+ *
+ * Pass `budget` to override the search strength — the progressive reviewer
+ * calls this repeatedly with a growing time budget so the result deepens.
+ * Without it the search runs at the strength the game was played at.
  */
 export async function getAnalysis(
   gameId: string,
   moveIndex: number,
+  budget?: { depth: number; timeoutMs: number },
 ): Promise<Analysis | null> {
   if (moveIndex < 0) return null;
   const g = await getGame(gameId);
-  if (!g.moves[moveIndex]) return null;
+  const move = g.moves[moveIndex];
+  if (!move) return null;
 
-  const ok = await replaySafely(g.moves.map((m) => m.coord), moveIndex - 1);
-  if (!ok) return null;
+  // Default strength: the depth the game was played at (hot-seat → fallback).
+  const reviewDepth = budget?.depth ?? g.aiDepth ?? ANALYSIS_DEPTH;
+  const { depth, timeoutMs } =
+    budget ?? searchBudget(reviewDepth, g.aiTimeoutMs ?? DEFAULT_ANY_BUDGET_MS);
+  const recorded =
+    move.source === "ai" && move.analysis
+      ? { ...move.analysis, chosen: move.coord, thinkMs: move.thinkMs }
+      : undefined;
 
-  const { result, thinkMs } = await getEngine().bestMove(ANALYSIS_DEPTH);
-  return {
-    id: `a_${gameId}_${moveIndex}`,
-    gameId,
-    moveIndex,
-    chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
-    rootScore: result.score,
-    thinkMs,
-    depth: ANALYSIS_DEPTH,
-    nodesVisited: Number(result.nodes_visited),
-  };
+  return withEngineLock(async () => {
+    const ok = await replaySafely(g.moves.map((m) => m.coord), moveIndex - 1);
+    if (!ok) return null;
+
+    const { result, thinkMs } = await getEngine().bestMove(depth, timeoutMs);
+    return {
+      id: `a_${gameId}_${moveIndex}`,
+      gameId,
+      moveIndex,
+      chosen: result.move ? { x: result.move.x, y: result.move.y } : null,
+      rootScore: result.score,
+      thinkMs,
+      depth: reviewDepth,
+      depthReached: result.depth_reached,
+      maxPly: result.max_ply,
+      nodesVisited: Number(result.total_nodes),
+      // If the AI played this move, surface what it recorded at the time too,
+      // so the panel can show both "then" and "now" side by side.
+      recorded,
+    };
+  });
 }
 
 export const queryKeys = {
   games: ["games"] as const,
   fixtures: ["fixtures"] as const,
   game: (id: string) => ["game", id] as const,
-  analysis: (gameId: string, moveIndex: number) =>
-    ["analysis", gameId, moveIndex] as const,
 };
