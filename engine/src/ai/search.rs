@@ -390,12 +390,26 @@ mod tests {
         );
     }
 
+    /// Search to a fixed depth with the iterative-deepening wall-clock
+    /// timeout disabled.
+    ///
+    /// `best_move` uses `SearchConfig::default()`, which caps iterative
+    /// deepening at 100ms. That makes fixed-depth *result* comparisons
+    /// (TT vs no-TT, run vs run) nondeterministic under CPU load: a slower
+    /// run can stop a depth short and pick a different — but equally scored —
+    /// move. Any test that asserts on the search result must reach the
+    /// requested depth, so it searches with an effectively unbounded budget.
+    fn search_to_depth(game: &mut Game, depth: u32, tt_size: usize) -> SearchResult {
+        let config = SearchConfig { timeout_ms: u64::MAX, ..SearchConfig::default() };
+        best_move_with(game, depth, tt_size, &config)
+    }
+
     fn assert_deterministic(game: &Game, depth: u32) {
         let mut g1 = game.clone();
         let mut g2 = game.clone();
 
-        let r1 = best_move(&mut g1, depth, 20);
-        let r2 = best_move(&mut g2, depth, 20);
+        let r1 = search_to_depth(&mut g1, depth, 20);
+        let r2 = search_to_depth(&mut g2, depth, 20);
 
         assert_eq!(r1.best_move, r2.best_move, "best move differs");
         assert_eq!(r1.score, r2.score, "score differs");
@@ -463,8 +477,8 @@ mod tests {
         let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
-        let r1 = best_move(&mut g1, 4, 0);
-        let r2 = best_move(&mut g2, 4, 20);
+        let r1 = search_to_depth(&mut g1, 4, 0);
+        let r2 = search_to_depth(&mut g2, 4, 20);
 
         assert_eq!(r1.best_move, r2.best_move);
         assert_eq!(r1.score, r2.score);
@@ -475,8 +489,8 @@ mod tests {
         let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
-        let r1 = best_move(&mut g1, 6, 0);
-        let r2 = best_move(&mut g2, 6, 20);
+        let r1 = search_to_depth(&mut g1, 6, 0);
+        let r2 = search_to_depth(&mut g2, 6, 20);
 
         assert!(r2.total_nodes < r1.total_nodes);
     }
@@ -486,8 +500,8 @@ mod tests {
         let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
-        let r1 = best_move(&mut g1, 4, 0);
-        let r2 = best_move(&mut g2, 4, 20);
+        let r1 = search_to_depth(&mut g1, 4, 0);
+        let r2 = search_to_depth(&mut g2, 4, 20);
 
         assert_eq!(r1.best_move, r2.best_move, "best move differs with TT");
         assert_eq!(r1.score, r2.score, "score differs with TT");

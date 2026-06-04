@@ -122,7 +122,6 @@ pub fn iterative_deepening(
 mod tests {
     use super::*;
     use crate::game::Pos;
-    use crate::ai::search::best_move;
 
     fn midgame_position() -> Game {
         let mut g = Game::new();
@@ -217,17 +216,24 @@ mod tests {
     #[test]
     fn iterative_matches_direct_search() {
         use std::time::Instant;
+        use crate::ai::search::best_move_with;
         let mut g1 = midgame_position();
         let mut g2 = g1.clone();
 
         let depth = 6;
 
+        // Disable the wall-clock timeout so both searches reach the requested
+        // depth. With the default 100ms budget, the depth-6 iteration can be
+        // cut short under CPU load, leaving the two searches at different
+        // depths and picking different (equally scored) moves — a flaky
+        // failure that has nothing to do with direct-vs-iterative parity.
+        let config = SearchConfig { timeout_ms: u64::MAX, ..SearchConfig::default() };
+
         let start = Instant::now();
 
-        let direct = best_move(&mut g1, depth, 20);
+        let direct = best_move_with(&mut g1, depth, 20, &config);
         let direct_time = start.elapsed();
 
-        let config = SearchConfig::default();
         let start = Instant::now();
         let iterative = iterative_deepening(&mut g2, depth, 20, &config);
         let iterative_time = start.elapsed();
