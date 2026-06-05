@@ -159,10 +159,10 @@ pub fn negamax(
         let reduction =
             if !config.enable_lmr {
                 0
-            } else if depth >= 6 && i >= 3 {
+            } else if depth >= 6 && i >= 1 {
+                4
+            } else if depth >= 3 && i >= 1 {
                 2
-            } else if depth >= 3 && i >= 3 {
-                1
             } else {
                 0
             };

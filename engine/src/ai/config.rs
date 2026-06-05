@@ -14,7 +14,7 @@ impl Default for SearchConfig {
     fn default() -> Self {
         Self {
             enable_lmr: true,
-            timeout_ms: 100,
+            timeout_ms: 250,
             iterative_start_depth: 1,
         }
     }
