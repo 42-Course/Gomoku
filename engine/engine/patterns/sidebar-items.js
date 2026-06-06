@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"fn":["count_patterns","has_free_three","line_mask","run_starts"],"struct":["PatternCounts"]};
+window.SIDEBAR_ITEMS = {"fn":["capturable_mask","count_patterns","expand_five","five_mask","has_free_three","has_stable_five"],"struct":["PatternCounts"]};

@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["WIN_SCORE"],"fn":["best_move","negamax","terminal_score"],"struct":["SearchResult"]};
+window.SIDEBAR_ITEMS = {"constant":["WIN_SCORE"],"fn":["best_move","best_move_with","negamax"],"struct":["SearchResult"]};

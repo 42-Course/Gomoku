@@ -1,9 +1,9 @@
 (function() {
-    const implementors = Object.fromEntries([["engine",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.95.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/patterns/struct.PatternCounts.html\" title=\"struct engine::patterns::PatternCounts\">PatternCounts</a>",0]]]]);
+    const implementors = Object.fromEntries([["engine",[["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/ai/config/struct.SearchConfig.html\" title=\"struct engine::ai::config::SearchConfig\">SearchConfig</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/board/struct.BitBoard.html\" title=\"struct engine::board::BitBoard\">BitBoard</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/board/struct.Board.html\" title=\"struct engine::board::Board\">Board</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/game/struct.Game.html\" title=\"struct engine::game::Game\">Game</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/patterns/struct.PatternCounts.html\" title=\"struct engine::patterns::PatternCounts\">PatternCounts</a>",0],["impl <a class=\"trait\" href=\"https://doc.rust-lang.org/1.96.0/core/default/trait.Default.html\" title=\"trait core::default::Default\">Default</a> for <a class=\"struct\" href=\"engine/zobrist/struct.Zobrist.html\" title=\"struct engine::zobrist::Zobrist\">Zobrist</a>",0]]]]);
     if (window.register_implementors) {
         window.register_implementors(implementors);
     } else {
         window.pending_implementors = implementors;
     }
 })()
-//{"start":59,"fragment_lengths":[309]}
+//{"start":59,"fragment_lengths":[1688]}

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["iterative_deepening","search_iteration"],"struct":["IterativeResult","SearchIterationResult"]};

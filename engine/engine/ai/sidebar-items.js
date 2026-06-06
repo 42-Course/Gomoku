@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"mod":["eval","move_ordering","search"]};
+window.SIDEBAR_ITEMS = {"mod":["config","eval","iterative_deepening","move_ordering","search"]};

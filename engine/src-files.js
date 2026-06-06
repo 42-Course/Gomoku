@@ -1,2 +1,2 @@
-createSrcSidebar('[["engine",["",[["ai",[],["eval.rs","mod.rs","move_ordering.rs","search.rs"]]],["board.rs","constants.rs","game.rs","main.rs","patterns.rs","transpose.rs","zobrist.rs"]]]]');
-//{"start":19,"fragment_lengths":[169]}
+createSrcSidebar('[["engine",["",[["ai",[],["config.rs","eval.rs","iterative_deepening.rs","mod.rs","move_ordering.rs","search.rs"]]],["board.rs","constants.rs","game.rs","lib.rs","patterns.rs","transpose.rs","zobrist.rs"]]]]');
+//{"start":19,"fragment_lengths":[205]}

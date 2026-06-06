@@ -1,1 +1,1 @@
-window.SIDEBAR_ITEMS = {"constant":["WORD_COUNT"],"struct":["BitBoard","Board"]};
+window.SIDEBAR_ITEMS = {"static":["LEFT_EDGE","RIGHT_EDGE"],"struct":["BitBoard","Board"]};
