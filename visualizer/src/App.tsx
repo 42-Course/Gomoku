@@ -4,9 +4,7 @@ import { Shell } from "@/components/Shell";
 import { Home } from "@/pages/Home";
 import { GamesList } from "@/pages/GamesList";
 import { GameDetail } from "@/pages/GameDetail";
-import { Lab } from "@/pages/Lab";
 import { Play } from "@/pages/Play";
-import { Profile } from "@/pages/Profile";
 
 const queryClient = new QueryClient({
   defaultOptions: {

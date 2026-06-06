@@ -4,10 +4,8 @@ import {
   Home,
   Target,
   ListOrdered,
-  FlaskConical,
   Github,
   Menu,
-  User,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/cn";

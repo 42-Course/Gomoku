@@ -37,14 +37,14 @@ jobs:
         run: cargo doc --no-deps --all-features
 
       - name: Add root redirect to engine crate
-        run: echo '<meta http-equiv="refresh" content="0; url=engine/index.html">' > target/doc/index.html
+        run: echo '<meta http-equiv="refresh" content="0; url=engine/index.html">' > ../target/doc/index.html
 
       - name: Deploy to gh-pages under /engine
         uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_branch: gh-pages
-          publish_dir: engine/target/doc
+          publish_dir: target/doc
           destination_dir: engine
           keep_files: true
           commit_message: "docs(engine): deploy ${{ github.sha }}"
