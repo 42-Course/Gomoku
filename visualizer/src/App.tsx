@@ -31,8 +31,8 @@ export default function App() {
             <Route path="/play" element={<Play />} />
             <Route path="/games" element={<GamesList />} />
             <Route path="/games/:id" element={<GameDetail />} />
-            <Route path="/profile" element={<Profile />} />
-            <Route path="/lab" element={<Lab />} />
+            {/* <Route path="/profile" element={<Profile />} /> */}
+            {/* <Route path="/lab" element={<Lab />} /> */}
             <Route path="*" element={<Home />} />
           </Route>
         </Routes>

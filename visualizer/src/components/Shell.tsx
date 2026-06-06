@@ -63,13 +63,13 @@ function SidebarBody({ onNavigate }: { onNavigate?: () => void }) {
       <nav className="flex flex-col gap-1 px-3">
         <NavItem to="/" icon={Home} label="Home" end onNavigate={onNavigate} />
         <NavItem to="/games" icon={ListOrdered} label="Games" onNavigate={onNavigate} />
-        <NavItem to="/profile" icon={User} label="Profile" onNavigate={onNavigate} />
-        <NavItem to="/lab" icon={FlaskConical} label="Lab" onNavigate={onNavigate} />
+        {/* <NavItem to="/profile" icon={User} label="Profile" onNavigate={onNavigate} /> */}
+        {/* <NavItem to="/lab" icon={FlaskConical} label="Lab" onNavigate={onNavigate} /> */}
       </nav>
 
       <div className="absolute bottom-0 w-full border-t border-border px-4 py-3 text-xs text-ink-muted">
         <a
-          href="https://github.com"
+          href="https://github.com/42-Course/Gomoku"
           className="flex items-center gap-2 hover:text-ink-strong"
           target="_blank"
           rel="noreferrer"

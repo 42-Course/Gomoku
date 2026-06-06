@@ -21,6 +21,7 @@
 //! [`evaluate`] returns the score from the perspective of
 //! [`Game::current_player`]; positive means the side to move is winning.
 //! This is the convention negamax expects — the caller negates between plies.
+#![allow(rustdoc::private_intra_doc_links)]
 
 use crate::board::Board;
 use crate::game::{Game, GameStatus, Player};

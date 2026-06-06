@@ -4,6 +4,8 @@ A high-performance Gomoku AI written in Rust and compiled to WebAssembly.
 
 The project implements the complete 42 Gomoku ruleset, including captures, endgame capture validation, and double-three detection, while focusing on strong search performance, modern web technologies, and a polished user experience.
 
+![Gource video](gource.mp4)
+
 ---
 
 ## Features

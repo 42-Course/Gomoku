@@ -20,6 +20,7 @@
 //! [`Game::generate_moves`] yields every empty cell within
 //! [`MOVE_GEN_RADIUS`] of an existing stone (so the search doesn't waste
 //! time on isolated points). The search calls this directly.
+#![allow(rustdoc::private_intra_doc_links)]
 
 use crate::board::BitBoard;
 use crate::constants::BOARD_SIZE;
